@@ -24,6 +24,7 @@ class AssuranceLoop:
             "reproducibility": self._run_reproducibility,
             "hallucination_detection": self._run_hallucination_detection,
             "adversarial_robustness": self._run_adversarial_robustness,
+            "benchmark_comparison": self._run_benchmark_comparison,
         }
 
     async def evaluate(
@@ -153,6 +154,30 @@ class AssuranceLoop:
 
         evaluator = AdversarialRobustnessEval()
         return await evaluator.evaluate(model_callable, threshold=threshold)
+
+    async def _run_benchmark_comparison(
+        self, intent: Intent, threshold: float,
+    ) -> EvalResult:
+        """Compare the agent's panel to published benchmark signatures.
+
+        ``BenchmarkComparisonEval.evaluate()`` hardcodes ``threshold=0.0``
+        (pass = any overlap).  This adapter mirrors the other ``_run_*``
+        methods by honouring the gate-provided threshold post-hoc: the
+        score (best Jaccard) is re-tested against the registry threshold
+        without touching the evaluator's scoring logic.
+        """
+        from evals.benchmark_comparison import BenchmarkComparisonEval
+
+        genes = self._extract_genes(intent)
+        evaluator = BenchmarkComparisonEval()
+        result = evaluator.evaluate(genes)
+        return EvalResult(
+            name=result.name,
+            passed=result.score >= threshold,
+            score=result.score,
+            threshold=threshold,
+            details=result.details,
+        )
 
     # ------------------------------------------------------------------
     # Data extraction helpers
