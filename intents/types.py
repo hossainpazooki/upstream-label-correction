@@ -47,13 +47,15 @@ class ValidationIntentSpec:
 
     Maps to Stage 4 dual-path validation.  Acts as a gate for
     AnalysisIntent — no analysis proceeds past stage 2 without
-    a passing ValidationIntent.
+    a passing ValidationIntent.  Its eval gate covers citation
+    hallucination and adversarial robustness of the SLM.
     """
 
     intent_type: str = "validation"
     required_infra: tuple[str, ...] = ()
     eval_criteria: tuple[tuple[str, float], ...] = (
         ("hallucination_detection", 0.90),
+        ("adversarial_robustness", 1.0),
     )
 
 

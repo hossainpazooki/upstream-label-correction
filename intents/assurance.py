@@ -23,6 +23,7 @@ class AssuranceLoop:
             "biological_validity": self._run_biological_validity,
             "reproducibility": self._run_reproducibility,
             "hallucination_detection": self._run_hallucination_detection,
+            "adversarial_robustness": self._run_adversarial_robustness,
         }
 
     async def evaluate(
@@ -124,6 +125,34 @@ class AssuranceLoop:
         # Interpretations come from the workflow results.
         interpretations = self._extract_interpretations(intent)
         return evaluator.evaluate(interpretations, threshold=threshold)
+
+    async def _run_adversarial_robustness(
+        self, intent: Intent, threshold: float,
+    ) -> EvalResult:
+        """Probe the SLM with defensive adversarial inputs and score resistance."""
+        import json
+
+        from evals.adversarial_robustness import AdversarialRobustnessEval
+        from training.explainer import get_explainer
+
+        explainer = get_explainer()
+
+        async def model_callable(probe: dict) -> str:
+            """Deliver a probe to the SLM via its classify_gene entry point.
+
+            The SLM exposes only classify_gene(gene, target): the ``gene``
+            argument is the direct user-input channel, the ``target`` context
+            is the document / RAG channel.  Each probe is routed onto whichever
+            channel it targets.
+            """
+            if probe.get("channel") == "document_rag":
+                result = await explainer.classify_gene("BRAF", probe["probe_input"])
+            else:
+                result = await explainer.classify_gene(probe["probe_input"], "msi")
+            return json.dumps(result, default=str)
+
+        evaluator = AdversarialRobustnessEval()
+        return await evaluator.evaluate(model_callable, threshold=threshold)
 
     # ------------------------------------------------------------------
     # Data extraction helpers
