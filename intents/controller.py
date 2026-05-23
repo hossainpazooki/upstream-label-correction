@@ -182,16 +182,27 @@ class IntentController:
         intent_model = Intent(**self._to_model_kwargs(intent))
         eval_results = await self._assurance.evaluate(intent_model, spec.eval_criteria)
 
+        # Down-convert at the persistence boundary -- the on-disk shape that
+        # downstream readers (e.g. AssuranceLoop._extract_genes) expect.
+        persisted = {
+            name: {
+                "score": r.score,
+                "threshold": r.threshold,
+                "passed": r.passed,
+                "details": r.details,
+            }
+            for name, r in eval_results.items()
+        }
         await update_intent(
             intent["intent_id"],
-            eval_results=eval_results,
+            eval_results=persisted,
         )
 
         if self._assurance.all_passed(eval_results):
             await self._transition(intent, IntentStatus.ACHIEVED)
         else:
             failed_evals = [
-                name for name, r in eval_results.items() if not r.get("passed")
+                name for name, r in eval_results.items() if not r.passed
             ]
             await update_intent(
                 intent["intent_id"],

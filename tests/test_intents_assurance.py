@@ -144,8 +144,8 @@ def test_evaluate_all_pass(assurance, analysis_intent):
         )
 
         assert assurance.all_passed(results) is True
-        assert results["biological_validity"]["passed"] is True
-        assert results["reproducibility"]["passed"] is True
+        assert results["biological_validity"].passed is True
+        assert results["reproducibility"].passed is True
 
 
 def test_evaluate_partial_fail(assurance, analysis_intent):
@@ -166,7 +166,7 @@ def test_evaluate_partial_fail(assurance, analysis_intent):
         )
 
         assert assurance.all_passed(results) is False
-        assert results["reproducibility"]["passed"] is False
+        assert results["reproducibility"].passed is False
 
 
 # ---------------------------------------------------------------------------
@@ -211,5 +211,5 @@ def test_eval_error_returns_failed(assurance, analysis_intent):
         assurance.evaluate(analysis_intent, (("biological_validity", 0.60),))
     )
 
-    assert results["biological_validity"]["passed"] is False
-    assert "error" in results["biological_validity"]["details"]
+    assert results["biological_validity"].passed is False
+    assert "error" in results["biological_validity"].details
