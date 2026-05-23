@@ -6,14 +6,14 @@ import logging
 import time
 from typing import Any
 
-from evals.biological_validity import BiologicalValidityEval, EvalResult
+from evals.biological_validity import BiologicalValidityEval
 from evals.hallucination_detection import HallucinationDetectionEval
 
 logger = logging.getLogger(__name__)
 
 
 class SLMEvalSuite:
-    """Run biological validity and hallucination detection evals against SLM outputs."""
+    """Runner over two evaluators (biological validity + hallucination detection); not itself an ``EvalResult`` producer."""
 
     def __init__(self, slm_explainer: Any) -> None:
         self.slm_explainer = slm_explainer

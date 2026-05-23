@@ -1,13 +1,4 @@
-from dataclasses import dataclass, field
-
-
-@dataclass
-class EvalResult:
-    name: str
-    passed: bool
-    score: float
-    threshold: float
-    details: dict = field(default_factory=dict)
+from evals import EvalResult
 
 
 class HallucinationDetectionEval:
