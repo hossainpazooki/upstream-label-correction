@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from evals import EvalResult
 from intents.controller import IntentController
 from intents.assurance import AssuranceLoop
 from intents.infra_resolver import InfrastructureResolver
@@ -27,8 +28,12 @@ def mock_resolver():
 def mock_assurance():
     assurance = MagicMock(spec=AssuranceLoop)
     assurance.evaluate = AsyncMock(return_value={
-        "biological_validity": {"score": 0.75, "passed": True, "threshold": 0.60, "details": {}},
-        "reproducibility": {"score": 0.90, "passed": True, "threshold": 0.85, "details": {}},
+        "biological_validity": EvalResult(
+            name="biological_validity", passed=True, score=0.75, threshold=0.60,
+        ),
+        "reproducibility": EvalResult(
+            name="reproducibility", passed=True, score=0.90, threshold=0.85,
+        ),
     })
     assurance.all_passed = MagicMock(return_value=True)
     return assurance
@@ -106,8 +111,12 @@ def test_resolver_gpu_quota_exceeds_limit():
 def test_assurance_all_passed_true():
     loop = AssuranceLoop()
     results = {
-        "biological_validity": {"score": 0.75, "passed": True},
-        "reproducibility": {"score": 0.90, "passed": True},
+        "biological_validity": EvalResult(
+            name="biological_validity", passed=True, score=0.75, threshold=0.60,
+        ),
+        "reproducibility": EvalResult(
+            name="reproducibility", passed=True, score=0.90, threshold=0.85,
+        ),
     }
     assert loop.all_passed(results) is True
 
@@ -115,8 +124,12 @@ def test_assurance_all_passed_true():
 def test_assurance_all_passed_false():
     loop = AssuranceLoop()
     results = {
-        "biological_validity": {"score": 0.75, "passed": True},
-        "reproducibility": {"score": 0.50, "passed": False},
+        "biological_validity": EvalResult(
+            name="biological_validity", passed=True, score=0.75, threshold=0.60,
+        ),
+        "reproducibility": EvalResult(
+            name="reproducibility", passed=False, score=0.50, threshold=0.85,
+        ),
     }
     assert loop.all_passed(results) is False
 

@@ -24,18 +24,21 @@ class AssuranceLoop:
             "reproducibility": self._run_reproducibility,
             "hallucination_detection": self._run_hallucination_detection,
             "adversarial_robustness": self._run_adversarial_robustness,
+            "benchmark_comparison": self._run_benchmark_comparison,
         }
 
     async def evaluate(
         self,
         intent: Intent,
         eval_criteria: tuple[tuple[str, float], ...],
-    ) -> dict[str, Any]:
+    ) -> dict[str, EvalResult]:
         """Run all eval criteria for the intent.
 
-        Returns a dict of ``{eval_name: {score, threshold, passed, details}}``.
+        Returns a dict of ``{eval_name: EvalResult}``.  Callers that need to
+        persist the verdict should down-convert at the persistence boundary
+        (see ``intents.controller.IntentController._verify``).
         """
-        results: dict[str, Any] = {}
+        results: dict[str, EvalResult] = {}
 
         for eval_name, threshold in eval_criteria:
             runner = self._registry.get(eval_name)
@@ -43,30 +46,25 @@ class AssuranceLoop:
                 logger.warning("No eval runner for '%s', skipping", eval_name)
                 continue
             try:
-                eval_result: EvalResult = await runner(intent, threshold)
-                results[eval_name] = {
-                    "score": eval_result.score,
-                    "threshold": eval_result.threshold,
-                    "passed": eval_result.passed,
-                    "details": eval_result.details,
-                }
+                results[eval_name] = await runner(intent, threshold)
             except Exception as exc:
                 logger.exception("Eval '%s' failed for intent %s", eval_name, intent.intent_id)
-                results[eval_name] = {
-                    "score": 0.0,
-                    "threshold": threshold,
-                    "passed": False,
-                    "details": {"error": str(exc)},
-                }
+                results[eval_name] = EvalResult(
+                    name=eval_name,
+                    passed=False,
+                    score=0.0,
+                    threshold=threshold,
+                    details={"error": str(exc)},
+                )
 
         return results
 
     @staticmethod
-    def all_passed(eval_results: dict[str, Any]) -> bool:
+    def all_passed(eval_results: dict[str, EvalResult]) -> bool:
         """Return True if every eval criterion passed."""
         if not eval_results:
             return True
-        return all(r.get("passed", False) for r in eval_results.values())
+        return all(r.passed for r in eval_results.values())
 
     # ------------------------------------------------------------------
     # Private eval runners
@@ -153,6 +151,30 @@ class AssuranceLoop:
 
         evaluator = AdversarialRobustnessEval()
         return await evaluator.evaluate(model_callable, threshold=threshold)
+
+    async def _run_benchmark_comparison(
+        self, intent: Intent, threshold: float,
+    ) -> EvalResult:
+        """Compare the agent's panel to published benchmark signatures.
+
+        ``BenchmarkComparisonEval.evaluate()`` hardcodes ``threshold=0.0``
+        (pass = any overlap).  This adapter mirrors the other ``_run_*``
+        methods by honouring the gate-provided threshold post-hoc: the
+        score (best Jaccard) is re-tested against the registry threshold
+        without touching the evaluator's scoring logic.
+        """
+        from evals.benchmark_comparison import BenchmarkComparisonEval
+
+        genes = self._extract_genes(intent)
+        evaluator = BenchmarkComparisonEval()
+        result = evaluator.evaluate(genes)
+        return EvalResult(
+            name=result.name,
+            passed=result.score >= threshold,
+            score=result.score,
+            threshold=threshold,
+            details=result.details,
+        )
 
     # ------------------------------------------------------------------
     # Data extraction helpers

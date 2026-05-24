@@ -1,19 +1,11 @@
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from evals import EvalResult
+
 if TYPE_CHECKING:
     from core.storage import StorageBackend
-
-
-@dataclass
-class EvalResult:
-    name: str
-    passed: bool
-    score: float
-    threshold: float
-    details: dict = field(default_factory=dict)
 
 
 class BiologicalValidityEval:
