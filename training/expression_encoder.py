@@ -196,8 +196,7 @@ if _TORCH_AVAILABLE:
 
             if self.proteomics.shape[0] != self.rnaseq.shape[0]:
                 raise ValueError(
-                    f"Sample count mismatch: proteomics={self.proteomics.shape[0]}, "
-                    f"rnaseq={self.rnaseq.shape[0]}"
+                    f"Sample count mismatch: proteomics={self.proteomics.shape[0]}, rnaseq={self.rnaseq.shape[0]}"
                 )
 
         def _load_array(self, path: str) -> np.ndarray:

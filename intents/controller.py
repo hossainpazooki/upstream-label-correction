@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING
 
-from intents.assurance import AssuranceLoop
-from intents.infra_resolver import InfrastructureResolver
 from intents.models import Intent, emit_event, get_intent_record, update_intent
-from intents.schemas import IntentStatus, VALID_TRANSITIONS
+from intents.schemas import VALID_TRANSITIONS, IntentStatus
 from intents.types import INTENT_SPECS, TrainingIntentSpec
+
+if TYPE_CHECKING:
+    from intents.assurance import AssuranceLoop
+    from intents.infra_resolver import InfrastructureResolver
 
 logger = logging.getLogger(__name__)
 
@@ -201,9 +203,7 @@ class IntentController:
         if self._assurance.all_passed(eval_results):
             await self._transition(intent, IntentStatus.ACHIEVED)
         else:
-            failed_evals = [
-                name for name, r in eval_results.items() if not r.passed
-            ]
+            failed_evals = [name for name, r in eval_results.items() if not r.passed]
             await update_intent(
                 intent["intent_id"],
                 status=IntentStatus.FAILED,
@@ -225,7 +225,9 @@ class IntentController:
         if to_status not in valid and to_status != IntentStatus.CANCELLED:
             logger.error(
                 "Invalid transition %s → %s for intent %s",
-                from_status, to_status, intent["intent_id"],
+                from_status,
+                to_status,
+                intent["intent_id"],
             )
             return
 

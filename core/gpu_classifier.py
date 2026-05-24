@@ -69,14 +69,18 @@ class GPUEnsembleMismatchClassifier:
             clf_g = self._clone_clf(clf)
             clf_g.fit(X_arr, y_gender_arr)
             self.classifiers_[key_g] = clf_g
-            meta_cols.append(clf_g.predict(X_arr).get() if hasattr(clf_g.predict(X_arr), 'get') else np.asarray(clf_g.predict(X_arr)))
+            meta_cols.append(
+                clf_g.predict(X_arr).get() if hasattr(clf_g.predict(X_arr), "get") else np.asarray(clf_g.predict(X_arr))
+            )
 
             # MSI
             key_m = f"{clf_name}_msi"
             clf_m = self._clone_clf(clf)
             clf_m.fit(X_arr, y_msi_arr)
             self.classifiers_[key_m] = clf_m
-            meta_cols.append(clf_m.predict(X_arr).get() if hasattr(clf_m.predict(X_arr), 'get') else np.asarray(clf_m.predict(X_arr)))
+            meta_cols.append(
+                clf_m.predict(X_arr).get() if hasattr(clf_m.predict(X_arr), "get") else np.asarray(clf_m.predict(X_arr))
+            )
 
         meta_features = np.column_stack(meta_cols).astype(np.float32)
 
@@ -98,13 +102,13 @@ class GPUEnsembleMismatchClassifier:
         meta_cols = []
         for key, clf in self.classifiers_.items():
             preds = clf.predict(X_arr)
-            preds_np = preds.get() if hasattr(preds, 'get') else np.asarray(preds)
+            preds_np = preds.get() if hasattr(preds, "get") else np.asarray(preds)
             per_classifier[key] = preds_np.tolist()
             meta_cols.append(preds_np)
 
         meta_features = np.column_stack(meta_cols).astype(np.float32)
         ensemble_preds = self.meta_learner_.predict(meta_features)
-        ensemble_np = ensemble_preds.get() if hasattr(ensemble_preds, 'get') else np.asarray(ensemble_preds)
+        ensemble_np = ensemble_preds.get() if hasattr(ensemble_preds, "get") else np.asarray(ensemble_preds)
 
         return {
             "ensemble_predictions": ensemble_np.tolist(),

@@ -2,6 +2,7 @@
 
 Usage: python -m scripts.compile_dspy --module biomarker_discovery --strategy mipro
 """
+
 from __future__ import annotations
 
 import argparse

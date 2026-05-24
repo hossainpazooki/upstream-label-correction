@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from core.sharded_distance import ShardedDistanceComputer, _compute_shard
 
@@ -41,12 +40,15 @@ class TestShardedDistanceComputer:
 
         # Direct computation (single iteration, all genes)
         diff = pro[:, np.newaxis, :] - rna[np.newaxis, :, :]
-        expected = np.sqrt(np.sum(diff ** 2, axis=2))
+        expected = np.sqrt(np.sum(diff**2, axis=2))
 
         computer = ShardedDistanceComputer(n_workers=2)
         result = computer.compute_sharded(
-            pro, rna, gene_indices,
-            n_iterations=1, gene_fraction=1.0,
+            pro,
+            rna,
+            gene_indices,
+            n_iterations=1,
+            gene_fraction=1.0,
             rng=np.random.default_rng(42),
         )
 
@@ -59,8 +61,12 @@ class TestShardedDistanceComputer:
 
         computer = ShardedDistanceComputer(n_workers=2)
         result = computer.compute_sharded(
-            pro, rna, np.arange(20),
-            n_iterations=3, gene_fraction=0.5, rng=rng,
+            pro,
+            rna,
+            np.arange(20),
+            n_iterations=3,
+            gene_fraction=0.5,
+            rng=rng,
         )
         assert result.shape == (8, 5)
 
@@ -73,10 +79,14 @@ class TestShardedDistanceComputer:
         computer = ShardedDistanceComputer(n_workers=1)
         # With gene_fraction=1.0, every iteration uses all genes -> same distances
         result = computer.compute_sharded(
-            pro, rna, np.arange(6),
-            n_iterations=5, gene_fraction=1.0, rng=np.random.default_rng(0),
+            pro,
+            rna,
+            np.arange(6),
+            n_iterations=5,
+            gene_fraction=1.0,
+            rng=np.random.default_rng(0),
         )
 
         diff = pro[:, np.newaxis, :] - rna[np.newaxis, :, :]
-        expected = np.sqrt(np.sum(diff ** 2, axis=2))
+        expected = np.sqrt(np.sum(diff**2, axis=2))
         np.testing.assert_allclose(result, expected, atol=1e-10)

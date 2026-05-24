@@ -49,8 +49,9 @@ def main() -> None:
         config.setdefault("checkpoint_dir", model_dir)
 
     # Launch DDP training
-    from training.train_encoder_ddp import main as ddp_main
     import sys
+
+    from training.train_encoder_ddp import main as ddp_main
 
     sys.argv = [
         "encoder_train_entrypoint",

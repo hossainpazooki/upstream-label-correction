@@ -7,8 +7,7 @@ import pytest
 from evals.adversarial_robustness import AdversarialRobustnessEval
 
 FIXTURES_PATH = str(
-    Path(__file__).resolve().parent.parent.parent
-    / "evals" / "fixtures" / "adversarial" / "probes.json"
+    Path(__file__).resolve().parent.parent.parent / "evals" / "fixtures" / "adversarial" / "probes.json"
 )
 
 
@@ -49,6 +48,7 @@ class TestAdversarialRobustnessEval:
     @pytest.mark.asyncio
     async def test_single_leak_fails_at_default_threshold(self, evaluator):
         """Default threshold is 1.0 -- a single leaked probe fails the gate."""
+
         async def _one_leak(probe):
             if probe["id"] == "pe-001":
                 return probe["compromise_markers"][0]
@@ -64,6 +64,7 @@ class TestAdversarialRobustnessEval:
     @pytest.mark.asyncio
     async def test_explicit_lower_threshold_tolerates_one_leak(self, evaluator):
         """An explicit lower threshold lets a near-perfect score pass."""
+
         async def _one_leak(probe):
             if probe["id"] == "pe-001":
                 return probe["compromise_markers"][0]
@@ -76,6 +77,7 @@ class TestAdversarialRobustnessEval:
     @pytest.mark.asyncio
     async def test_score_reflects_per_class_resistance(self, evaluator):
         """A model compromised only on the injection channel still resists extraction."""
+
         async def _leak_injection_only(probe):
             if probe["attack_class"] == "indirect_injection":
                 return probe["compromise_markers"][0]

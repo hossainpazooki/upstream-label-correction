@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 from scipy import stats
 
-from core.constants import Y_CHROMOSOME_GENES, KNOWN_MSI_PATHWAY_MARKERS
+from core.constants import KNOWN_MSI_PATHWAY_MARKERS, Y_CHROMOSOME_GENES
 from core.synthetic import SyntheticCohortGenerator
 
 
@@ -62,7 +61,7 @@ class TestGroundTruth:
     def test_mislabel_type_valid(self, cohort):
         gt = cohort["ground_truth"]
         valid_types = {"proteomics", "rnaseq", "clinical"}
-        for sid, mtype in gt["mislabel_type"].items():
+        for _sid, mtype in gt["mislabel_type"].items():
             assert mtype in valid_types
 
 
@@ -79,11 +78,7 @@ class TestMSISignal:
         msi_h = clin["MSI_status"] == "MSI-H"
 
         significant_count = 0
-        all_pathway_genes = [
-            g
-            for genes in KNOWN_MSI_PATHWAY_MARKERS.values()
-            for g in genes
-        ]
+        all_pathway_genes = [g for genes in KNOWN_MSI_PATHWAY_MARKERS.values() for g in genes]
 
         for gene in all_pathway_genes:
             if gene not in pro.columns:
@@ -96,9 +91,7 @@ class TestMSISignal:
             if p < 0.05:
                 significant_count += 1
 
-        assert significant_count >= 1, (
-            "Expected at least 1 MSI pathway gene with p < 0.05"
-        )
+        assert significant_count >= 1, "Expected at least 1 MSI pathway gene with p < 0.05"
 
 
 class TestReproducibility:
@@ -119,9 +112,7 @@ class TestReproducibility:
         d2 = gen2.generate_cohort()
 
         # At least the expression values should differ
-        assert not d1["proteomics"].drop(columns="sample_id").equals(
-            d2["proteomics"].drop(columns="sample_id")
-        )
+        assert not d1["proteomics"].drop(columns="sample_id").equals(d2["proteomics"].drop(columns="sample_id"))
 
 
 class TestYChromosomeSignal:
@@ -143,6 +134,4 @@ class TestYChromosomeSignal:
             # should be near zero.
             non_nan = vals.dropna()
             if len(non_nan) > 0:
-                assert (non_nan.abs() < 1e-6).all(), (
-                    f"{gene} has non-zero values in female samples"
-                )
+                assert (non_nan.abs() < 1e-6).all(), f"{gene} has non-zero values in female samples"

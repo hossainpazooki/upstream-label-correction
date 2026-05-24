@@ -1,4 +1,5 @@
 """Mine examples from pipeline runs for DSPy training."""
+
 from __future__ import annotations
 
 import logging
@@ -39,28 +40,32 @@ class AutoPromptExampleMiner:
         report = run_results.get("report", "")
 
         if dataset_summary and report:
-            examples.append({
-                "dataset_summary": dataset_summary,
-                "imputation_stats": imputation_stats,
-                "feature_list": feature_list,
-                "target": target,
-                "report": report,
-                "_input_keys": ["dataset_summary", "imputation_stats", "feature_list", "target"],
-            })
+            examples.append(
+                {
+                    "dataset_summary": dataset_summary,
+                    "imputation_stats": imputation_stats,
+                    "feature_list": feature_list,
+                    "target": target,
+                    "report": report,
+                    "_input_keys": ["dataset_summary", "imputation_stats", "feature_list", "target"],
+                }
+            )
 
         interpretations = run_results.get("interpretations", [])
         for interp in interpretations:
             gene = interp.get("gene_name", "")
             if gene:
-                examples.append({
-                    "gene_name": gene,
-                    "expression_context": interp.get("expression_context", ""),
-                    "target": target,
-                    "pathway": interp.get("pathway", ""),
-                    "mechanism": interp.get("mechanism", ""),
-                    "pubmed_ids": interp.get("pubmed_ids", ""),
-                    "_input_keys": ["gene_name", "expression_context", "target"],
-                })
+                examples.append(
+                    {
+                        "gene_name": gene,
+                        "expression_context": interp.get("expression_context", ""),
+                        "target": target,
+                        "pathway": interp.get("pathway", ""),
+                        "mechanism": interp.get("mechanism", ""),
+                        "pubmed_ids": interp.get("pubmed_ids", ""),
+                        "_input_keys": ["gene_name", "expression_context", "target"],
+                    }
+                )
 
         logger.info("Mined %d examples from pipeline run", len(examples))
         return examples

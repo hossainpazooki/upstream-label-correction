@@ -47,10 +47,7 @@ def main() -> None:
     # Load config
     from training.configs.qlora_biomistral import DoRAConfig, QLoRAConfig
 
-    if args.mode == "dora":
-        config = DoRAConfig(base_model=args.base_model)
-    else:
-        config = QLoRAConfig(base_model=args.base_model)
+    config = DoRAConfig(base_model=args.base_model) if args.mode == "dora" else QLoRAConfig(base_model=args.base_model)
 
     # Run training
     from training.finetune_slm import load_quantized_model, prepare_datasets, train

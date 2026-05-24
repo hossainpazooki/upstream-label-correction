@@ -25,46 +25,53 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from pydantic import BaseModel
-
 
 # ---------------------------------------------------------------------------
 # Request schemas — previously in mcp_server.schemas.omics (now removed)
 # ---------------------------------------------------------------------------
+
 
 class ImputeMissingInput(BaseModel):
     dataset: str = "train"
     modality: str = "proteomics"
     method: str = "nmf"
 
+
 class RunClassificationInput(BaseModel):
     dataset: str = "train"
     target: str = "msi"
+
 
 class SelectBiomarkersInput(BaseModel):
     dataset: str = "train"
     target: str = "msi"
     n_top: int = 30
 
+
 class MatchCrossOmicsInput(BaseModel):
     dataset: str = "train"
+
 
 class EvaluateModelInput(BaseModel):
     dataset: str = "test"
     target: str = "msi"
 
+
 class CheckAvailabilityInput(BaseModel):
     genes: list[str]
     dataset: str = "train"
+
 
 class ExplainFeaturesInput(BaseModel):
     features: list[str]
     target: str = "msi"
 
+
 class ExplainFeaturesLocalInput(BaseModel):
     features: list[str]
     target: str = "msi"
+
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +98,8 @@ async def health() -> dict:
 @app.post("/ml/impute")
 async def impute(params: ImputeMissingInput) -> dict:
     """Run NMF imputation."""
-    from core.imputation import OmicsImputer
     from core.data_loader import load_dataset
+    from core.imputation import OmicsImputer
 
     data = load_dataset(params.dataset, params.modality)
     imputer = OmicsImputer(method=params.method)
@@ -115,8 +122,8 @@ async def classify(params: RunClassificationInput) -> dict:
 @app.post("/ml/features")
 async def features(params: SelectBiomarkersInput) -> dict:
     """Run multi-strategy feature selection."""
-    from core.feature_selection import MultiStrategySelector
     from core.data_loader import load_dataset
+    from core.feature_selection import MultiStrategySelector
 
     data = load_dataset(params.dataset)
     selector = MultiStrategySelector()
@@ -165,13 +172,15 @@ async def explain(params: ExplainFeaturesInput) -> dict:
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
-            messages=[{
-                "role": "user",
-                "content": f"Explain the biological relevance of these genomic features for {params.target}: {', '.join(params.features)}",
-            }],
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Explain the biological relevance of these genomic features for {params.target}: {', '.join(params.features)}",
+                }
+            ],
         )
         return {"interpretation": message.content[0].text, "source": "claude"}
-    except Exception as exc:
+    except Exception:
         return _fallback_interpretation(params.features, params.target)
 
 

@@ -1,4 +1,5 @@
 """Tests for DSPy module instantiation and forward signatures."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

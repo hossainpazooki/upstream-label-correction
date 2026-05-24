@@ -72,9 +72,7 @@ def register_with_vertex(
     model = aiplatform.Model.upload(
         display_name=display_name,
         artifact_uri=artifact_uri,
-        serving_container_image_uri=(
-            "us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest"
-        ),
+        serving_container_image_uri=("us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest"),
         labels=labels or {},
     )
     logger.info("Registered model %s in Vertex AI: %s", display_name, model.resource_name)

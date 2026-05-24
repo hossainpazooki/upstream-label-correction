@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from training.data_builder import build_ground_truth_examples
 from training.format_utils import format_alpaca, split_dataset
 

@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from core.storage import StorageBackend
 
 from core.constants import (
-    ALL_KNOWN_MSI_MARKERS,
     KNOWN_MSI_PATHWAY_MARKERS,
     PATHWAY_MECHANISMS,
 )
@@ -32,11 +31,36 @@ _INSTRUCTION = (
 
 # Common housekeeping genes unlikely to be MSI-specific
 _HOUSEKEEPING_GENES = [
-    "ACTB", "GAPDH", "HPRT1", "RPL13A", "SDHA", "TBP", "YWHAZ",
-    "B2M", "HMBS", "HSP90AB1", "LDHA", "NONO", "PGK1", "PPIH",
-    "PPIA", "RPLP0", "RPS18", "RPS9", "UBC", "UBB",
-    "GUSB", "TFRC", "ALAS1", "IPO8", "POLR2A", "PSMC4",
-    "PUM1", "RPL30", "RPS13", "SF3A1",
+    "ACTB",
+    "GAPDH",
+    "HPRT1",
+    "RPL13A",
+    "SDHA",
+    "TBP",
+    "YWHAZ",
+    "B2M",
+    "HMBS",
+    "HSP90AB1",
+    "LDHA",
+    "NONO",
+    "PGK1",
+    "PPIH",
+    "PPIA",
+    "RPLP0",
+    "RPS18",
+    "RPS9",
+    "UBC",
+    "UBB",
+    "GUSB",
+    "TFRC",
+    "ALAS1",
+    "IPO8",
+    "POLR2A",
+    "PSMC4",
+    "PUM1",
+    "RPL30",
+    "RPS13",
+    "SF3A1",
 ]
 
 
@@ -54,13 +78,15 @@ def build_ground_truth_examples() -> list[dict]:
                 "confidence": 0.95,
                 "msi_relevant": True,
             }
-            examples.append({
-                "instruction": _INSTRUCTION,
-                "input": f"Gene: {gene}\nContext: msi_classification",
-                "output": json.dumps(output),
-                "source": "ground_truth",
-                "pathway": pathway,
-            })
+            examples.append(
+                {
+                    "instruction": _INSTRUCTION,
+                    "input": f"Gene: {gene}\nContext: msi_classification",
+                    "output": json.dumps(output),
+                    "source": "ground_truth",
+                    "pathway": pathway,
+                }
+            )
 
     # Add cross-pathway examples with multiple pathway annotations
     multi_pathway_genes: dict[str, list[str]] = {}
@@ -77,13 +103,15 @@ def build_ground_truth_examples() -> list[dict]:
                 "confidence": 0.95,
                 "msi_relevant": True,
             }
-            examples.append({
-                "instruction": _INSTRUCTION,
-                "input": f"Gene: {gene}\nContext: multi_pathway_analysis",
-                "output": json.dumps(output),
-                "source": "ground_truth",
-                "pathway": ", ".join(pathways),
-            })
+            examples.append(
+                {
+                    "instruction": _INSTRUCTION,
+                    "input": f"Gene: {gene}\nContext: multi_pathway_analysis",
+                    "output": json.dumps(output),
+                    "source": "ground_truth",
+                    "pathway": ", ".join(pathways),
+                }
+            )
 
     logger.info("Built %d ground truth examples", len(examples))
     return examples
@@ -140,13 +168,15 @@ async def build_distillation_examples(
                 if not isinstance(parsed, dict) or "gene" not in parsed:
                     continue
 
-                examples.append({
-                    "instruction": _INSTRUCTION,
-                    "input": f"Gene: {gene}\nContext: {context}",
-                    "output": output_text,
-                    "source": "distillation",
-                    "pathway": parsed.get("pathway", "unknown"),
-                })
+                examples.append(
+                    {
+                        "instruction": _INSTRUCTION,
+                        "input": f"Gene: {gene}\nContext: {context}",
+                        "output": output_text,
+                        "source": "distillation",
+                        "pathway": parsed.get("pathway", "unknown"),
+                    }
+                )
             except Exception:
                 logger.warning("Failed to generate distillation example for %s", gene)
                 continue
@@ -201,13 +231,15 @@ def build_negative_examples(genes: list[str] | None = None) -> list[dict]:
                 "confidence": 0.90,
                 "msi_relevant": False,
             }
-            examples.append({
-                "instruction": _INSTRUCTION,
-                "input": f"Gene: {gene}\nContext: {context}",
-                "output": json.dumps(output),
-                "source": "negative",
-                "pathway": "none_established",
-            })
+            examples.append(
+                {
+                    "instruction": _INSTRUCTION,
+                    "input": f"Gene: {gene}\nContext: {context}",
+                    "output": json.dumps(output),
+                    "source": "negative",
+                    "pathway": "none_established",
+                }
+            )
 
     logger.info("Built %d negative examples", len(examples))
     return examples

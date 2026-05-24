@@ -72,7 +72,7 @@ def test_extract_interpretations_from_params():
 
 def test_biological_validity_passes(assurance, analysis_intent):
     """Known MSI genes should pass biological validity at 0.60 threshold."""
-    with patch("intents.assurance.BiologicalValidityEval") as MockEval:
+    with patch("evals.biological_validity.BiologicalValidityEval") as MockEval:
         mock_eval = MagicMock()
         mock_eval.evaluate.return_value = EvalResult(
             name="biological_validity",
@@ -84,9 +84,8 @@ def test_biological_validity_passes(assurance, analysis_intent):
         MockEval.return_value = mock_eval
 
         import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            assurance._run_biological_validity(analysis_intent, 0.60)
-        )
+
+        result = asyncio.get_event_loop().run_until_complete(assurance._run_biological_validity(analysis_intent, 0.60))
 
         assert result.passed is True
         assert result.score == 0.75
@@ -101,7 +100,7 @@ def test_biological_validity_fails(assurance):
         params={"genes": []},
     )
 
-    with patch("intents.assurance.BiologicalValidityEval") as MockEval:
+    with patch("evals.biological_validity.BiologicalValidityEval") as MockEval:
         mock_eval = MagicMock()
         mock_eval.evaluate.return_value = EvalResult(
             name="biological_validity",
@@ -113,9 +112,8 @@ def test_biological_validity_fails(assurance):
         MockEval.return_value = mock_eval
 
         import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            assurance._run_biological_validity(intent, 0.60)
-        )
+
+        result = asyncio.get_event_loop().run_until_complete(assurance._run_biological_validity(intent, 0.60))
 
         assert result.passed is False
         assert result.score == 0.0
@@ -132,16 +130,31 @@ def test_evaluate_all_pass(assurance, analysis_intent):
 
     spec = AnalysisIntentSpec()
 
-    with patch.object(assurance, "_run_biological_validity", return_value=EvalResult(
-        name="biological_validity", passed=True, score=0.75, threshold=0.60,
-    )) as mock_bio, patch.object(assurance, "_run_reproducibility", return_value=EvalResult(
-        name="reproducibility", passed=True, score=0.90, threshold=0.85,
-    )) as mock_repro:
-
+    with (
+        patch.object(
+            assurance,
+            "_run_biological_validity",
+            return_value=EvalResult(
+                name="biological_validity",
+                passed=True,
+                score=0.75,
+                threshold=0.60,
+            ),
+        ),
+        patch.object(
+            assurance,
+            "_run_reproducibility",
+            return_value=EvalResult(
+                name="reproducibility",
+                passed=True,
+                score=0.90,
+                threshold=0.85,
+            ),
+        ),
+    ):
         import asyncio
-        results = asyncio.get_event_loop().run_until_complete(
-            assurance.evaluate(analysis_intent, spec.eval_criteria)
-        )
+
+        results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(analysis_intent, spec.eval_criteria))
 
         assert assurance.all_passed(results) is True
         assert results["biological_validity"].passed is True
@@ -154,16 +167,31 @@ def test_evaluate_partial_fail(assurance, analysis_intent):
 
     spec = AnalysisIntentSpec()
 
-    with patch.object(assurance, "_run_biological_validity", return_value=EvalResult(
-        name="biological_validity", passed=True, score=0.75, threshold=0.60,
-    )), patch.object(assurance, "_run_reproducibility", return_value=EvalResult(
-        name="reproducibility", passed=False, score=0.50, threshold=0.85,
-    )):
-
+    with (
+        patch.object(
+            assurance,
+            "_run_biological_validity",
+            return_value=EvalResult(
+                name="biological_validity",
+                passed=True,
+                score=0.75,
+                threshold=0.60,
+            ),
+        ),
+        patch.object(
+            assurance,
+            "_run_reproducibility",
+            return_value=EvalResult(
+                name="reproducibility",
+                passed=False,
+                score=0.50,
+                threshold=0.85,
+            ),
+        ),
+    ):
         import asyncio
-        results = asyncio.get_event_loop().run_until_complete(
-            assurance.evaluate(analysis_intent, spec.eval_criteria)
-        )
+
+        results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(analysis_intent, spec.eval_criteria))
 
         assert assurance.all_passed(results) is False
         assert results["reproducibility"].passed is False
@@ -186,9 +214,8 @@ def test_training_intent_no_evals(assurance):
     )
 
     import asyncio
-    results = asyncio.get_event_loop().run_until_complete(
-        assurance.evaluate(intent, spec.eval_criteria)
-    )
+
+    results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(intent, spec.eval_criteria))
 
     assert results == {}
     assert assurance.all_passed(results) is True
@@ -201,12 +228,14 @@ def test_training_intent_no_evals(assurance):
 
 def test_eval_error_returns_failed(assurance, analysis_intent):
     """If an eval runner raises, the result should be marked as failed."""
+
     async def _failing_eval(intent, threshold):
         raise RuntimeError("eval crashed")
 
     assurance._registry["biological_validity"] = _failing_eval
 
     import asyncio
+
     results = asyncio.get_event_loop().run_until_complete(
         assurance.evaluate(analysis_intent, (("biological_validity", 0.60),))
     )

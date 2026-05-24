@@ -7,10 +7,12 @@ workflow results to determine whether an intent's success criteria are met.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from evals import EvalResult
-from intents.models import Intent
+
+if TYPE_CHECKING:
+    from intents.models import Intent
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,9 @@ class AssuranceLoop:
     # ------------------------------------------------------------------
 
     async def _run_biological_validity(
-        self, intent: Intent, threshold: float,
+        self,
+        intent: Intent,
+        threshold: float,
     ) -> EvalResult:
         """Extract selected genes from workflow results and evaluate pathway coverage."""
         from evals.biological_validity import BiologicalValidityEval
@@ -82,7 +86,9 @@ class AssuranceLoop:
         return evaluator.evaluate(genes, threshold=threshold)
 
     async def _run_reproducibility(
-        self, intent: Intent, threshold: float,
+        self,
+        intent: Intent,
+        threshold: float,
     ) -> EvalResult:
         """Evaluate reproducibility by re-running the pipeline with different seeds."""
         from evals.reproducibility import ReproducibilityEval
@@ -92,7 +98,6 @@ class AssuranceLoop:
         # Build a callable that runs the pipeline.
         params = intent.params
         dataset = params.get("dataset", "train")
-        target = params.get("target", "msi")
 
         def pipeline_callable(seed: int) -> list[str]:
             """Run pipeline and return top-k feature names."""
@@ -113,7 +118,9 @@ class AssuranceLoop:
         )
 
     async def _run_hallucination_detection(
-        self, intent: Intent, threshold: float,
+        self,
+        intent: Intent,
+        threshold: float,
     ) -> EvalResult:
         """Extract interpretations from workflow results and verify citations."""
         from evals.hallucination_detection import HallucinationDetectionEval
@@ -125,7 +132,9 @@ class AssuranceLoop:
         return evaluator.evaluate(interpretations, threshold=threshold)
 
     async def _run_adversarial_robustness(
-        self, intent: Intent, threshold: float,
+        self,
+        intent: Intent,
+        threshold: float,
     ) -> EvalResult:
         """Probe the SLM with defensive adversarial inputs and score resistance."""
         import json
@@ -153,7 +162,9 @@ class AssuranceLoop:
         return await evaluator.evaluate(model_callable, threshold=threshold)
 
     async def _run_benchmark_comparison(
-        self, intent: Intent, threshold: float,
+        self,
+        intent: Intent,
+        threshold: float,
     ) -> EvalResult:
         """Compare the agent's panel to published benchmark signatures.
 

@@ -1,4 +1,5 @@
 """DSPy module for regulatory report generation."""
+
 from __future__ import annotations
 
 try:

@@ -7,7 +7,7 @@ import pytest
 from core.classifier import EnsembleMismatchClassifier, get_classifier
 
 try:
-    import cuml
+    import cuml  # noqa: F401
 
     _CUML_AVAILABLE = True
 except ImportError:

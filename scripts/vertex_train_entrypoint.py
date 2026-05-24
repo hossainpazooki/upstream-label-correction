@@ -13,7 +13,6 @@ import argparse
 import json
 import logging
 import os
-import sys
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -48,8 +47,6 @@ def main() -> None:
     # Determine dataset name from URI (e.g., train_pro.tsv -> train)
     dataset = blob_prefix.rsplit("/", 1)[-1].split("_")[0] if blob_prefix else "train"
 
-    import pandas as pd
-
     clinical_df = loader.load_clinical(dataset)
     proteomics_df = loader.load_proteomics(dataset)
 
@@ -73,16 +70,6 @@ def main() -> None:
     # Serialize and upload model artifact
     model_dir = os.environ.get("AIP_MODEL_DIR")
     if model_dir:
-        from core.model_registry import serialize_model
-
-        # Get classifier from predict stage if available
-        predict_stage = results.get("stages", {}).get("predict", {})
-        metadata = {
-            "target": args.target,
-            "config": config,
-            "classification_result": predict_stage.get("classification_result", {}),
-        }
-
         logger.info("Training complete. Results saved to %s", model_dir)
     else:
         logger.info("No AIP_MODEL_DIR set; skipping model upload")

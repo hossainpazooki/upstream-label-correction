@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class AdversarialRobustnessEval:
     """Evaluate whether the SLM resists prompt-extraction and prompt-injection probes."""
 
-    def __init__(self, fixtures_path: str | None = None, storage_backend: "StorageBackend | None" = None):
+    def __init__(self, fixtures_path: str | None = None, storage_backend: StorageBackend | None = None):
         if storage_backend is not None and fixtures_path:
             data_bytes = storage_backend.read_bytes(fixtures_path)
             data = json.loads(data_bytes)

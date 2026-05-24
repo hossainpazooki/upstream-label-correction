@@ -7,8 +7,6 @@ import json
 import logging
 import os
 
-import numpy as np
-
 try:
     import torch
     import torch.distributed as dist

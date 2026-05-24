@@ -16,8 +16,6 @@ Usage:
 
 from __future__ import annotations
 
-import sys
-
 
 def main() -> None:
     print("=" * 70)
@@ -31,7 +29,7 @@ def main() -> None:
     dataset = generate_synthetic_dataset(n_samples=80, target="msi", seed=42)
     print(f"  Generated {dataset.get('n_samples', 'N/A')} samples")
     print(f"  Features: {dataset.get('n_features', 'N/A')}")
-    print(f"  Target: MSI status")
+    print("  Target: MSI status")
 
     # Step 2: Impute missing values
     print("\n[Step 2/7] Imputing missing values...")
@@ -50,9 +48,7 @@ def main() -> None:
         import numpy as np
         import pandas as pd
 
-        proteomics_imputed = pd.DataFrame(
-            np.random.randn(80, 100), columns=[f"gene_{i}" for i in range(100)]
-        )
+        proteomics_imputed = pd.DataFrame(np.random.randn(80, 100), columns=[f"gene_{i}" for i in range(100)])
 
     # Step 3: Select biomarker features
     print("\n[Step 3/7] Selecting biomarker features...")
@@ -78,9 +74,9 @@ def main() -> None:
 
     # Step 4: Train ensemble classifier
     print("\n[Step 4/7] Training ensemble classifier...")
-    from core.classifier import EnsembleMismatchClassifier
-
     import numpy as np
+
+    from core.classifier import EnsembleMismatchClassifier
 
     y_gender = dataset.get("y_gender")
     if y_gender is None:
@@ -145,7 +141,7 @@ def main() -> None:
         "classifier_trained": classifier.is_fitted_ if hasattr(classifier, "is_fitted_") else False,
         "interpretation_source": interpretation["source"],
     }
-    print(f"  Report summary:")
+    print("  Report summary:")
     for key, value in report.items():
         if isinstance(value, list):
             print(f"    {key}: [{len(value)} items]")

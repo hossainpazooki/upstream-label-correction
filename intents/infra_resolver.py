@@ -141,12 +141,15 @@ class InfrastructureResolver:
 
         if model_type == "encoder":
             from training.gpu_training import train_expression_encoder
+
             result = await train_expression_encoder(config)
         elif model_type == "slm":
             from training.gpu_training import finetune_slm
+
             result = await finetune_slm(config)
         elif model_type == "cuml":
             from training.gpu_training import run_cuml_pipeline
+
             result = await run_cuml_pipeline(config)
         else:
             return {"status": "failed", "error": f"Unknown model_type: {model_type}"}
@@ -165,8 +168,7 @@ class InfrastructureResolver:
             return {
                 "status": "failed",
                 "error": (
-                    f"Requested {requested_gpus} GPUs exceeds limit of "
-                    f"{max_gpus} for {intent.intent_type} intents."
+                    f"Requested {requested_gpus} GPUs exceeds limit of {max_gpus} for {intent.intent_type} intents."
                 ),
             }
 
