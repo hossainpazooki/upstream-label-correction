@@ -1,4 +1,5 @@
 """DSPy metrics wrapping existing eval framework."""
+
 from __future__ import annotations
 
 import re
@@ -51,14 +52,47 @@ def extract_genes_from_report(report_text: str) -> list[str]:
     Matches common gene name patterns: uppercase letters followed by
     optional digits (e.g., BRCA1, TP53, MLH1, TAP1).
     """
-    pattern = r'\b([A-Z][A-Z0-9]{1,}[0-9]*)\b'
+    pattern = r"\b([A-Z][A-Z0-9]{1,}[0-9]*)\b"
     candidates = re.findall(pattern, report_text)
     # Filter out common non-gene uppercase words
     stopwords = {
-        "THE", "AND", "FOR", "NOT", "ARE", "BUT", "FROM", "WITH", "THIS",
-        "THAT", "HAVE", "HAS", "HAD", "WAS", "WERE", "BEEN", "BEING",
-        "WILL", "WOULD", "COULD", "SHOULD", "MAY", "MIGHT", "MUST",
-        "SHALL", "CAN", "EACH", "WHICH", "THEIR", "ALL", "ANY",
-        "DNA", "RNA", "QC", "MSI", "PCR", "WHO", "FDA",
+        "THE",
+        "AND",
+        "FOR",
+        "NOT",
+        "ARE",
+        "BUT",
+        "FROM",
+        "WITH",
+        "THIS",
+        "THAT",
+        "HAVE",
+        "HAS",
+        "HAD",
+        "WAS",
+        "WERE",
+        "BEEN",
+        "BEING",
+        "WILL",
+        "WOULD",
+        "COULD",
+        "SHOULD",
+        "MAY",
+        "MIGHT",
+        "MUST",
+        "SHALL",
+        "CAN",
+        "EACH",
+        "WHICH",
+        "THEIR",
+        "ALL",
+        "ANY",
+        "DNA",
+        "RNA",
+        "QC",
+        "MSI",
+        "PCR",
+        "WHO",
+        "FDA",
     }
     return [g for g in candidates if g not in stopwords]

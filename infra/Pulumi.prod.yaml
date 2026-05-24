@@ -1,5 +1,0 @@
-config:
-  gcp:region: us-central1
-  precision-genomics:zone: us-central1-a
-  precision-genomics:db_tier: db-custom-4-16384
-  precision-genomics:experiment_name: precision-genomics

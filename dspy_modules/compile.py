@@ -1,4 +1,5 @@
 """DSPy module compilation pipeline."""
+
 from __future__ import annotations
 
 import json
@@ -65,7 +66,7 @@ def save_optimized_module(module, name: str, storage: StorageBackend) -> str:
 
     import datetime
 
-    timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
+    timestamp = datetime.datetime.now(tz=datetime.UTC).strftime("%Y%m%dT%H%M%S")
     path = f"dspy_modules/{name}/{timestamp}.json"
 
     module.save(f"/tmp/dspy_{name}_{timestamp}")

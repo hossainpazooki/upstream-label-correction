@@ -42,7 +42,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
       return mlClient.impute({
         dataset: input.dataset,
         modality: "proteomics",
-      }) as Promise<Record<string, unknown>>;
+      }) as unknown as Promise<Record<string, unknown>>;
     },
   },
 
@@ -52,7 +52,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     inputSchema: zodToJsonSchema(ImputeMissingInput),
     handler: async (args) => {
       const input = ImputeMissingInput.parse(args);
-      return mlClient.impute(input) as Promise<Record<string, unknown>>;
+      return mlClient.impute(input) as unknown as Promise<Record<string, unknown>>;
     },
   },
 
@@ -79,7 +79,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     inputSchema: zodToJsonSchema(SelectBiomarkersInput),
     handler: async (args) => {
       const input = SelectBiomarkersInput.parse(args);
-      return mlClient.selectFeatures(input) as Promise<Record<string, unknown>>;
+      return mlClient.selectFeatures(input) as unknown as Promise<Record<string, unknown>>;
     },
   },
 
@@ -89,7 +89,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     inputSchema: zodToJsonSchema(RunClassificationInput),
     handler: async (args) => {
       const input = RunClassificationInput.parse(args);
-      return mlClient.classify(input) as Promise<Record<string, unknown>>;
+      return mlClient.classify(input) as unknown as Promise<Record<string, unknown>>;
     },
   },
 
@@ -99,7 +99,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     inputSchema: zodToJsonSchema(MatchCrossOmicsInput),
     handler: async (args) => {
       const input = MatchCrossOmicsInput.parse(args);
-      return mlClient.matchCrossOmics(input) as Promise<Record<string, unknown>>;
+      return mlClient.matchCrossOmics(input) as unknown as Promise<Record<string, unknown>>;
     },
   },
 
@@ -109,7 +109,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
     inputSchema: zodToJsonSchema(EvaluateModelInput),
     handler: async (args) => {
       const input = EvaluateModelInput.parse(args);
-      return mlClient.evaluate(input) as Promise<Record<string, unknown>>;
+      return mlClient.evaluate(input) as unknown as Promise<Record<string, unknown>>;
     },
   },
 

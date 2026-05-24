@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -94,13 +94,17 @@ class TestVertexGenomicsExplainer:
         explainer = VertexGenomicsExplainer(endpoint_name="projects/test/endpoints/123")
 
         mock_response = MagicMock()
-        mock_response.predictions = [json.dumps({
-            "gene": "GBP1",
-            "pathway": "interferon_response",
-            "mechanism": "Guanylate-binding protein",
-            "confidence": 0.90,
-            "msi_relevant": True,
-        })]
+        mock_response.predictions = [
+            json.dumps(
+                {
+                    "gene": "GBP1",
+                    "pathway": "interferon_response",
+                    "mechanism": "Guanylate-binding protein",
+                    "confidence": 0.90,
+                    "msi_relevant": True,
+                }
+            )
+        ]
 
         mock_endpoint = MagicMock()
         mock_endpoint.predict.return_value = mock_response
@@ -133,13 +137,15 @@ class TestVertexGenomicsExplainer:
         explainer = VertexGenomicsExplainer(endpoint_name="projects/test/endpoints/123")
 
         mock_response = MagicMock()
-        mock_response.predictions = [{
-            "gene": "TAP1",
-            "pathway": "antigen_presentation",
-            "mechanism": "Transporter",
-            "confidence": 0.91,
-            "msi_relevant": True,
-        }]
+        mock_response.predictions = [
+            {
+                "gene": "TAP1",
+                "pathway": "antigen_presentation",
+                "mechanism": "Transporter",
+                "confidence": 0.91,
+                "msi_relevant": True,
+            }
+        ]
 
         mock_endpoint = MagicMock()
         mock_endpoint.predict.return_value = mock_response

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from evals import EvalResult
-from intents.controller import IntentController
 from intents.assurance import AssuranceLoop
+from intents.controller import IntentController
 from intents.infra_resolver import InfrastructureResolver
 from intents.schemas import IntentStatus
 
@@ -16,10 +16,12 @@ from intents.schemas import IntentStatus
 @pytest.fixture
 def mock_resolver():
     resolver = MagicMock(spec=InfrastructureResolver)
-    resolver.resolve = AsyncMock(return_value={
-        "worker_scaled": {"status": "scaled"},
-        "gcs_data_staged": {"status": "staged"},
-    })
+    resolver.resolve = AsyncMock(
+        return_value={
+            "worker_scaled": {"status": "scaled"},
+            "gcs_data_staged": {"status": "staged"},
+        }
+    )
     resolver.all_resolved = MagicMock(return_value=True)
     return resolver
 
@@ -27,14 +29,22 @@ def mock_resolver():
 @pytest.fixture
 def mock_assurance():
     assurance = MagicMock(spec=AssuranceLoop)
-    assurance.evaluate = AsyncMock(return_value={
-        "biological_validity": EvalResult(
-            name="biological_validity", passed=True, score=0.75, threshold=0.60,
-        ),
-        "reproducibility": EvalResult(
-            name="reproducibility", passed=True, score=0.90, threshold=0.85,
-        ),
-    })
+    assurance.evaluate = AsyncMock(
+        return_value={
+            "biological_validity": EvalResult(
+                name="biological_validity",
+                passed=True,
+                score=0.75,
+                threshold=0.60,
+            ),
+            "reproducibility": EvalResult(
+                name="reproducibility",
+                passed=True,
+                score=0.90,
+                threshold=0.85,
+            ),
+        }
+    )
     assurance.all_passed = MagicMock(return_value=True)
     return assurance
 
@@ -78,9 +88,8 @@ def test_resolver_gpu_quota_within_limit():
     )
 
     import asyncio
-    result = asyncio.get_event_loop().run_until_complete(
-        resolver._check_gpu_quota(intent)
-    )
+
+    result = asyncio.get_event_loop().run_until_complete(resolver._check_gpu_quota(intent))
     assert result["status"] == "approved"
     assert result["num_gpus"] == 2
 
@@ -96,9 +105,8 @@ def test_resolver_gpu_quota_exceeds_limit():
     )
 
     import asyncio
-    result = asyncio.get_event_loop().run_until_complete(
-        resolver._check_gpu_quota(intent)
-    )
+
+    result = asyncio.get_event_loop().run_until_complete(resolver._check_gpu_quota(intent))
     assert result["status"] == "failed"
     assert "exceeds limit" in result["error"]
 
@@ -112,10 +120,16 @@ def test_assurance_all_passed_true():
     loop = AssuranceLoop()
     results = {
         "biological_validity": EvalResult(
-            name="biological_validity", passed=True, score=0.75, threshold=0.60,
+            name="biological_validity",
+            passed=True,
+            score=0.75,
+            threshold=0.60,
         ),
         "reproducibility": EvalResult(
-            name="reproducibility", passed=True, score=0.90, threshold=0.85,
+            name="reproducibility",
+            passed=True,
+            score=0.90,
+            threshold=0.85,
         ),
     }
     assert loop.all_passed(results) is True
@@ -125,10 +139,16 @@ def test_assurance_all_passed_false():
     loop = AssuranceLoop()
     results = {
         "biological_validity": EvalResult(
-            name="biological_validity", passed=True, score=0.75, threshold=0.60,
+            name="biological_validity",
+            passed=True,
+            score=0.75,
+            threshold=0.60,
         ),
         "reproducibility": EvalResult(
-            name="reproducibility", passed=False, score=0.50, threshold=0.85,
+            name="reproducibility",
+            passed=False,
+            score=0.50,
+            threshold=0.85,
         ),
     }
     assert loop.all_passed(results) is False
@@ -156,20 +176,16 @@ def test_valid_transitions_cover_happy_path():
         (IntentStatus.VERIFYING, IntentStatus.ACHIEVED),
     ]
     for from_state, to_state in path:
-        assert to_state in VALID_TRANSITIONS[from_state], (
-            f"Transition {from_state} → {to_state} should be valid"
-        )
+        assert to_state in VALID_TRANSITIONS[from_state], f"Transition {from_state} → {to_state} should be valid"
 
 
 def test_cancel_from_any_non_terminal():
     """CANCELLED should be reachable from all non-terminal states."""
-    from intents.schemas import VALID_TRANSITIONS, TERMINAL_STATES
+    from intents.schemas import TERMINAL_STATES, VALID_TRANSITIONS
 
     for state, allowed in VALID_TRANSITIONS.items():
         if state not in TERMINAL_STATES:
-            assert IntentStatus.CANCELLED in allowed, (
-                f"CANCELLED should be reachable from {state}"
-            )
+            assert IntentStatus.CANCELLED in allowed, f"CANCELLED should be reachable from {state}"
 
 
 def test_blocked_can_retry():

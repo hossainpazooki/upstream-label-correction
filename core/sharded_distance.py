@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import numpy as np
 from concurrent.futures import ProcessPoolExecutor
+
+import numpy as np
 
 
 def _compute_shard(args: tuple) -> np.ndarray:
@@ -20,8 +21,7 @@ def _compute_shard(args: tuple) -> np.ndarray:
     np.ndarray
         Distance sub-matrix of shape (shard_size, n_rnaseq_samples).
     """
-    pro_shard, rnaseq, gene_indices, seed = args
-    rng = np.random.default_rng(seed)
+    pro_shard, rnaseq, gene_indices, _seed = args
 
     # Select gene subset
     pro_sub = pro_shard[:, gene_indices]
@@ -30,7 +30,7 @@ def _compute_shard(args: tuple) -> np.ndarray:
     # Compute pairwise Euclidean distance
     # (n_pro, 1, n_genes) - (1, n_rna, n_genes)
     diff = pro_sub[:, np.newaxis, :] - rna_sub[np.newaxis, :, :]
-    distances = np.sqrt(np.sum(diff ** 2, axis=2))
+    distances = np.sqrt(np.sum(diff**2, axis=2))
 
     return distances
 
@@ -81,7 +81,7 @@ class ShardedDistanceComputer:
 
         accumulated = np.zeros((n_pro, rnaseq.shape[0]), dtype=np.float64)
 
-        for iteration in range(n_iterations):
+        for _iteration in range(n_iterations):
             # Random gene subset
             selected = rng.choice(gene_indices, size=n_genes_select, replace=False)
 

@@ -20,13 +20,11 @@ def load_quantized_model(config) -> tuple:
     Returns (model, tokenizer) tuple.
     """
     try:
-        import torch
+        import torch  # noqa: F401
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
         from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     except ImportError as exc:
-        raise ImportError(
-            "Fine-tuning requires: pip install peft transformers bitsandbytes torch"
-        ) from exc
+        raise ImportError("Fine-tuning requires: pip install peft transformers bitsandbytes torch") from exc
 
     bnb_config = BitsAndBytesConfig(**config.bnb_config)
 
@@ -94,12 +92,10 @@ def train(model, tokenizer, train_ds: list, val_ds: list, config, output_dir: st
     """
     try:
         from datasets import Dataset
-        from trl import SFTTrainer
         from transformers import TrainingArguments
+        from trl import SFTTrainer
     except ImportError as exc:
-        raise ImportError(
-            "Training requires: pip install trl datasets transformers"
-        ) from exc
+        raise ImportError("Training requires: pip install trl datasets transformers") from exc
 
     train_dataset = Dataset.from_list(train_ds)
     val_dataset = Dataset.from_list(val_ds) if val_ds else None
@@ -138,15 +134,17 @@ def train(model, tokenizer, train_ds: list, val_ds: list, config, output_dir: st
 
     tracker = ExperimentTracker()
     tracker.start_run(f"slm-finetune-{config.base_model.split('/')[-1]}")
-    tracker.log_params({
-        "base_model": config.base_model,
-        "r": config.r,
-        "lora_alpha": config.lora_alpha,
-        "use_dora": config.use_dora,
-        "epochs": config.num_train_epochs,
-        "batch_size": config.per_device_train_batch_size,
-        "learning_rate": config.learning_rate,
-    })
+    tracker.log_params(
+        {
+            "base_model": config.base_model,
+            "r": config.r,
+            "lora_alpha": config.lora_alpha,
+            "use_dora": config.use_dora,
+            "epochs": config.num_train_epochs,
+            "batch_size": config.per_device_train_batch_size,
+            "learning_rate": config.learning_rate,
+        }
+    )
     tracker.log_metrics(metrics)
     tracker.end_run()
 
@@ -155,10 +153,10 @@ def train(model, tokenizer, train_ds: list, val_ds: list, config, output_dir: st
 
     gcs_bucket = os.environ.get("AIP_MODEL_DIR") or os.environ.get("GCS_MODEL_BUCKET")
     if gcs_bucket:
-        from core.model_registry import save_to_gcs
-
         import io
         import tarfile
+
+        from core.model_registry import save_to_gcs
 
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -187,10 +185,7 @@ def main() -> None:
 
     from training.configs.qlora_biomistral import DoRAConfig, QLoRAConfig
 
-    if args.mode == "dora":
-        config = DoRAConfig(base_model=args.base_model)
-    else:
-        config = QLoRAConfig(base_model=args.base_model)
+    config = DoRAConfig(base_model=args.base_model) if args.mode == "dora" else QLoRAConfig(base_model=args.base_model)
 
     model, tokenizer = load_quantized_model(config)
     train_ds, val_ds, test_ds = prepare_datasets(args.data_path)

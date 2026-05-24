@@ -10,11 +10,7 @@ def format_alpaca(instruction: str, input_text: str, output_json: str) -> str:
 
     Returns a string in the standard Alpaca template used for instruction tuning.
     """
-    return (
-        f"### Instruction:\n{instruction}\n\n"
-        f"### Input:\n{input_text}\n\n"
-        f"### Response:\n{output_json}"
-    )
+    return f"### Instruction:\n{instruction}\n\n### Input:\n{input_text}\n\n### Response:\n{output_json}"
 
 
 def split_dataset(

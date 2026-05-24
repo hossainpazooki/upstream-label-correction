@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { v4 as uuidv4 } from "uuid";
 import { prisma } from "@/lib/prisma";
 import { SampleQCParams } from "@/lib/schemas/workflows";
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
       id: workflowId,
       workflowType: "sample_qc",
       status: "pending",
-      params: params as Record<string, unknown>,
+      params: params as unknown as Prisma.InputJsonValue,
       phasesRemaining: [
         "data_loading",
         "classification",

@@ -369,10 +369,11 @@ precision-genomics-agent-platform/
 ├── data/                          #   raw/ and processed/
 ├── docs/                          # Extended documentation
 ├── docker-compose.yml             # Local infrastructure
-├── Dockerfile                     # API container
-├── Dockerfile.mcp                 # MCP server container
-├── Dockerfile.worker              # Activity worker container
-├── Dockerfile.trainer             # GPU training container
+├── Dockerfile.ml                  # Python ML service container
+├── Dockerfile.trainer             # GPU training container (Vertex AI)
+├── web/Dockerfile                 # Next.js web app container
+├── web/Dockerfile.mcp             # MCP server container (TypeScript)
+├── intent-controller/Dockerfile   # Go intent controller container
 └── pyproject.toml                 # Dependencies and project config
 ```
 

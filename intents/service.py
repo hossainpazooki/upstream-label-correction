@@ -20,10 +20,7 @@ async def create_intent(
     from intents.types import INTENT_SPECS
 
     if intent_type not in INTENT_SPECS:
-        raise ValueError(
-            f"Unknown intent_type '{intent_type}'. "
-            f"Valid: {', '.join(INTENT_SPECS)}"
-        )
+        raise ValueError(f"Unknown intent_type '{intent_type}'. Valid: {', '.join(INTENT_SPECS)}")
 
     intent_id = f"{intent_type}-{uuid.uuid4().hex[:12]}"
 

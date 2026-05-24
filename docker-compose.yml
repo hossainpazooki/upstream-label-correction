@@ -83,10 +83,10 @@ services:
       redis:
         condition: service_healthy
 
-  # --- Python MCP Server (legacy, kept for backward compatibility) ---
-  mcp-sse:
+  # --- MCP Server (TypeScript) ---
+  mcp:
     build:
-      context: .
+      context: ./web
       dockerfile: Dockerfile.mcp
     ports:
       - "8080:8080"
@@ -94,28 +94,14 @@ services:
       ENVIRONMENT: local
       DATABASE_URL: postgresql://postgres:postgres@db:5432/precision_genomics
       REDIS_URL: redis://redis:6379/0
+      ML_SERVICE_URL: http://ml-service:8000
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-
-  # --- Python Training Worker (unchanged) ---
-  training-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    ports:
-      - "8081:8081"
-    environment:
-      ENVIRONMENT: local
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/precision_genomics
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      ml-service:
+        condition: service_started
 
 volumes:
   pgdata:

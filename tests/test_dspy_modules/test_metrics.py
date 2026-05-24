@@ -1,9 +1,8 @@
 """Tests for DSPy metrics and gene extraction."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from dspy_modules.metrics import (
     biological_validity_metric,

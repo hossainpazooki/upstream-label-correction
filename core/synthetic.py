@@ -88,27 +88,17 @@ class SyntheticCohortGenerator:
         ``"ground_truth"``.
         """
         clinical = self._generate_clinical()
-        proteomics_genes = self._build_gene_list(
-            "proteomics", self.n_genes_proteomics
-        )
+        proteomics_genes = self._build_gene_list("proteomics", self.n_genes_proteomics)
         rnaseq_genes = self._build_gene_list("rnaseq", self.n_genes_rnaseq)
 
-        proteomics = self._generate_expression(
-            clinical, proteomics_genes, modality="proteomics"
-        )
-        rnaseq = self._generate_expression(
-            clinical, rnaseq_genes, modality="rnaseq"
-        )
+        proteomics = self._generate_expression(clinical, proteomics_genes, modality="proteomics")
+        rnaseq = self._generate_expression(clinical, rnaseq_genes, modality="rnaseq")
 
         # Cross-omics concordance via shared latent factors
-        self._inject_cross_omics_signal(
-            clinical, proteomics, rnaseq, proteomics_genes, rnaseq_genes
-        )
+        self._inject_cross_omics_signal(clinical, proteomics, rnaseq, proteomics_genes, rnaseq_genes)
 
         # Mislabel injection
-        clinical, proteomics, rnaseq, mislabel_truth = self._inject_mislabels(
-            clinical, proteomics, rnaseq
-        )
+        clinical, proteomics, rnaseq, mislabel_truth = self._inject_mislabels(clinical, proteomics, rnaseq)
 
         # Structured missingness
         self._inject_missingness(proteomics, clinical, proteomics_genes)
@@ -116,12 +106,8 @@ class SyntheticCohortGenerator:
 
         ground_truth = {
             **mislabel_truth,
-            "msi_h_samples": clinical.loc[
-                clinical["MSI_status"] == "MSI-H", "sample_id"
-            ].tolist(),
-            "gender_map": dict(
-                zip(clinical["sample_id"], clinical["gender"], strict=False)
-            ),
+            "msi_h_samples": clinical.loc[clinical["MSI_status"] == "MSI-H", "sample_id"].tolist(),
+            "gender_map": dict(zip(clinical["sample_id"], clinical["gender"], strict=False)),
         }
 
         return {
@@ -158,25 +144,29 @@ class SyntheticCohortGenerator:
     def _build_gene_list(self, modality: str, n_genes: int) -> list[str]:
         """Build gene column names: known panels first, then synthetic."""
         if modality == "proteomics":
-            panel = list(dict.fromkeys(
-                MSI_PROTEOMICS_PANEL
-                + GENDER_PROTEOMICS_PANEL
-                + list(KNOWN_MSI_PATHWAY_MARKERS.get("immune_infiltration", []))
-                + list(KNOWN_MSI_PATHWAY_MARKERS.get("interferon_response", []))
-                + list(KNOWN_MSI_PATHWAY_MARKERS.get("antigen_presentation", []))
-                + list(KNOWN_MSI_PATHWAY_MARKERS.get("mismatch_repair_adjacent", []))
-                + Y_CHROMOSOME_GENES
-            ))
+            panel = list(
+                dict.fromkeys(
+                    MSI_PROTEOMICS_PANEL
+                    + GENDER_PROTEOMICS_PANEL
+                    + list(KNOWN_MSI_PATHWAY_MARKERS.get("immune_infiltration", []))
+                    + list(KNOWN_MSI_PATHWAY_MARKERS.get("interferon_response", []))
+                    + list(KNOWN_MSI_PATHWAY_MARKERS.get("antigen_presentation", []))
+                    + list(KNOWN_MSI_PATHWAY_MARKERS.get("mismatch_repair_adjacent", []))
+                    + Y_CHROMOSOME_GENES
+                )
+            )
         else:
-            panel = list(dict.fromkeys(
-                MSI_RNASEQ_PANEL
-                + GENDER_RNASEQ_PANEL
-                + list(KNOWN_MSI_PATHWAY_MARKERS.get("immune_infiltration", []))
-                + list(KNOWN_MSI_PATHWAY_MARKERS.get("interferon_response", []))
-                + list(KNOWN_MSI_PATHWAY_MARKERS.get("antigen_presentation", []))
-                + list(KNOWN_MSI_PATHWAY_MARKERS.get("mismatch_repair_adjacent", []))
-                + Y_CHROMOSOME_GENES
-            ))
+            panel = list(
+                dict.fromkeys(
+                    MSI_RNASEQ_PANEL
+                    + GENDER_RNASEQ_PANEL
+                    + list(KNOWN_MSI_PATHWAY_MARKERS.get("immune_infiltration", []))
+                    + list(KNOWN_MSI_PATHWAY_MARKERS.get("interferon_response", []))
+                    + list(KNOWN_MSI_PATHWAY_MARKERS.get("antigen_presentation", []))
+                    + list(KNOWN_MSI_PATHWAY_MARKERS.get("mismatch_repair_adjacent", []))
+                    + Y_CHROMOSOME_GENES
+                )
+            )
 
         # Truncate panel if n_genes is smaller
         panel = panel[:n_genes]
@@ -273,12 +263,8 @@ class SyntheticCohortGenerator:
                 shared = float(sample_profiles[row] @ loading)
                 pro_val = proteomics.at[row, gene]
                 rna_val = rnaseq.at[row, gene]
-                proteomics.at[row, gene] = pro_val * np.exp(
-                    shared + self.rng.normal(0, 0.2)
-                )
-                rnaseq.at[row, gene] = rna_val * np.exp(
-                    shared + self.rng.normal(0, 0.3)
-                )
+                proteomics.at[row, gene] = pro_val * np.exp(shared + self.rng.normal(0, 0.2))
+                rnaseq.at[row, gene] = rna_val * np.exp(shared + self.rng.normal(0, 0.3))
 
     def _inject_mislabels(
         self,
@@ -295,10 +281,8 @@ class SyntheticCohortGenerator:
         if n_to_swap % 2 != 0:
             n_to_swap -= 1
 
-        swap_indices = self.rng.choice(
-            self.n_samples, size=n_to_swap, replace=False
-        )
-        pairs = list(zip(swap_indices[::2], swap_indices[1::2]))
+        swap_indices = self.rng.choice(self.n_samples, size=n_to_swap, replace=False)
+        pairs = list(zip(swap_indices[::2], swap_indices[1::2], strict=False))
 
         swap_types = ["proteomics", "rnaseq", "clinical"]
         ground_truth: dict = {
@@ -373,9 +357,7 @@ class SyntheticCohortGenerator:
 
         for batch_id in range(n_batches):
             batch_rows = np.where(batch_assign == batch_id)[0]
-            affected_cols = self.rng.choice(
-                len(expr_cols), size=n_affected, replace=False
-            )
+            affected_cols = self.rng.choice(len(expr_cols), size=n_affected, replace=False)
             for col in affected_cols:
                 dropout_rate = self.rng.uniform(0.15, 0.40)
                 for row in batch_rows:

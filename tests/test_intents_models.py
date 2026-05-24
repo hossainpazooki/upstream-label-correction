@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from intents.schemas import IntentStatus, TERMINAL_STATES, VALID_TRANSITIONS
+from intents.models import Intent, IntentEvent
+from intents.schemas import TERMINAL_STATES, VALID_TRANSITIONS, IntentStatus
 from intents.types import (
-    AnalysisIntentSpec,
     INTENT_SPECS,
+    AnalysisIntentSpec,
     TrainingIntentSpec,
     ValidationIntentSpec,
 )
-from intents.models import Intent, IntentEvent
-
 
 # ---------------------------------------------------------------------------
 # IntentStatus enum
@@ -116,7 +115,7 @@ def test_specs_are_frozen():
     spec = INTENT_SPECS["analysis"]
     try:
         spec.intent_type = "something_else"
-        assert False, "Should have raised FrozenInstanceError"
+        raise AssertionError("Should have raised FrozenInstanceError")
     except AttributeError:
         pass
 

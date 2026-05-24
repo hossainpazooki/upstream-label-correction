@@ -15,7 +15,9 @@ pytestmark = pytest.mark.gcp
 
 class _FakeClassifier:
     """Picklable stub for model serialization tests."""
+
     some_attr = "test"
+
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT_ID")
 GCS_DATA_BUCKET = os.environ.get("GCS_DATA_BUCKET")

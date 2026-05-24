@@ -45,13 +45,16 @@ def mock_explainer():
                 "msi_relevant": False,
             },
         }
-        return known_genes.get(gene, {
-            "gene": gene,
-            "pathway": "unknown",
-            "mechanism": "Not characterized",
-            "confidence": 0.5,
-            "msi_relevant": False,
-        })
+        return known_genes.get(
+            gene,
+            {
+                "gene": gene,
+                "pathway": "unknown",
+                "mechanism": "Not characterized",
+                "confidence": 0.5,
+                "msi_relevant": False,
+            },
+        )
 
     explainer.classify_gene = classify_gene
     return explainer

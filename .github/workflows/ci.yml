@@ -69,11 +69,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build API image
-        run: docker build -t precision-genomics-api .
+      - name: Build ML service image
+        run: docker build -f Dockerfile.ml -t precision-genomics-ml .
 
-      - name: Build Worker image
-        run: docker build -f Dockerfile.worker -t precision-genomics-worker .
+      - name: Build Web image
+        run: docker build -f web/Dockerfile -t precision-genomics-web web/
 
       - name: Build MCP image
-        run: docker build -f Dockerfile.mcp -t precision-genomics-mcp .
+        run: docker build -f web/Dockerfile.mcp -t precision-genomics-mcp web/
+
+      # intent-controller build disabled: Go code has unresolved imports
+      # (internal/models package missing, referenced by 9 files).
+      # Re-enable after the Go models package is reconstructed.
+      # - name: Build Intent Controller image
+      #   run: docker build -f intent-controller/Dockerfile -t precision-genomics-intent-controller intent-controller/

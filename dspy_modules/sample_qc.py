@@ -1,4 +1,5 @@
 """DSPy module for sample quality control prompt optimization."""
+
 from __future__ import annotations
 
 try:
@@ -47,9 +48,7 @@ if _DSPY_AVAILABLE:
             self.cross_validate = dspy.ChainOfThought(CrossValidateSignature)
 
         def forward(self, classification_results, distance_results, target):
-            classification = self.analyze_classification(
-                classification_results=classification_results, target=target
-            )
+            classification = self.analyze_classification(classification_results=classification_results, target=target)
             distance = self.analyze_distance(distance_results=distance_results)
             result = self.cross_validate(
                 classification_flags=classification.flagged_samples,

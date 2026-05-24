@@ -25,9 +25,7 @@ class LocalGenomicsExplainer:
             from peft import PeftModel
             from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
         except ImportError as exc:
-            raise ImportError(
-                "Local explainer requires: pip install peft transformers bitsandbytes torch"
-            ) from exc
+            raise ImportError("Local explainer requires: pip install peft transformers bitsandbytes torch") from exc
 
         # Load adapter config to find base model
         import os
@@ -87,7 +85,7 @@ class LocalGenomicsExplainer:
             )
 
         response_text = self._tokenizer.decode(
-            outputs[0][inputs["input_ids"].shape[1]:],
+            outputs[0][inputs["input_ids"].shape[1] :],
             skip_special_tokens=True,
         ).strip()
 
@@ -167,6 +165,4 @@ def get_explainer(config: Any = None) -> LocalGenomicsExplainer | VertexGenomics
     if adapter_path:
         return LocalGenomicsExplainer(adapter_path=adapter_path)
 
-    raise ValueError(
-        "No SLM configuration found. Set either slm_endpoint_name or slm_adapter_path."
-    )
+    raise ValueError("No SLM configuration found. Set either slm_endpoint_name or slm_adapter_path.")
