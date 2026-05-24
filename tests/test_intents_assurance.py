@@ -130,35 +130,22 @@ def test_evaluate_all_pass(assurance, analysis_intent):
 
     spec = AnalysisIntentSpec()
 
-    with (
-        patch.object(
-            assurance,
-            "_run_biological_validity",
-            return_value=EvalResult(
-                name="biological_validity",
-                passed=True,
-                score=0.75,
-                threshold=0.60,
-            ),
-        ),
-        patch.object(
-            assurance,
-            "_run_reproducibility",
-            return_value=EvalResult(
-                name="reproducibility",
-                passed=True,
-                score=0.90,
-                threshold=0.85,
-            ),
-        ),
-    ):
-        import asyncio
+    async def fake_bio(intent, threshold):
+        return EvalResult(name="biological_validity", passed=True, score=0.75, threshold=0.60)
 
-        results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(analysis_intent, spec.eval_criteria))
+    async def fake_repro(intent, threshold):
+        return EvalResult(name="reproducibility", passed=True, score=0.90, threshold=0.85)
 
-        assert assurance.all_passed(results) is True
-        assert results["biological_validity"].passed is True
-        assert results["reproducibility"].passed is True
+    assurance._registry["biological_validity"] = fake_bio
+    assurance._registry["reproducibility"] = fake_repro
+
+    import asyncio
+
+    results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(analysis_intent, spec.eval_criteria))
+
+    assert assurance.all_passed(results) is True
+    assert results["biological_validity"].passed is True
+    assert results["reproducibility"].passed is True
 
 
 def test_evaluate_partial_fail(assurance, analysis_intent):
@@ -167,34 +154,21 @@ def test_evaluate_partial_fail(assurance, analysis_intent):
 
     spec = AnalysisIntentSpec()
 
-    with (
-        patch.object(
-            assurance,
-            "_run_biological_validity",
-            return_value=EvalResult(
-                name="biological_validity",
-                passed=True,
-                score=0.75,
-                threshold=0.60,
-            ),
-        ),
-        patch.object(
-            assurance,
-            "_run_reproducibility",
-            return_value=EvalResult(
-                name="reproducibility",
-                passed=False,
-                score=0.50,
-                threshold=0.85,
-            ),
-        ),
-    ):
-        import asyncio
+    async def fake_bio(intent, threshold):
+        return EvalResult(name="biological_validity", passed=True, score=0.75, threshold=0.60)
 
-        results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(analysis_intent, spec.eval_criteria))
+    async def fake_repro(intent, threshold):
+        return EvalResult(name="reproducibility", passed=False, score=0.50, threshold=0.85)
 
-        assert assurance.all_passed(results) is False
-        assert results["reproducibility"].passed is False
+    assurance._registry["biological_validity"] = fake_bio
+    assurance._registry["reproducibility"] = fake_repro
+
+    import asyncio
+
+    results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(analysis_intent, spec.eval_criteria))
+
+    assert assurance.all_passed(results) is False
+    assert results["reproducibility"].passed is False
 
 
 # ---------------------------------------------------------------------------
