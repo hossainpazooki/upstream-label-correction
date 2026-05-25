@@ -62,3 +62,6 @@ coverage.xml
 # Eggs
 *.egg-info/
 *.egg
+
+# Local cost projection (private)
+docs/COST_PROJECTION.md
