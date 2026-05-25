@@ -37,7 +37,7 @@ def split_dataset(
     tuple[list, list, list]
         (train, val, test) splits.
     """
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # noqa: S311 — ML data splits, not crypto
     shuffled = list(examples)
     rng.shuffle(shuffled)
 

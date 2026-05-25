@@ -65,12 +65,14 @@ def save_optimized_module(module, name: str, storage: StorageBackend) -> str:
         raise RuntimeError("dspy is not installed")
 
     import datetime
+    import tempfile
 
     timestamp = datetime.datetime.now(tz=datetime.UTC).strftime("%Y%m%dT%H%M%S")
     path = f"dspy_modules/{name}/{timestamp}.json"
 
-    module.save(f"/tmp/dspy_{name}_{timestamp}")
-    data = Path(f"/tmp/dspy_{name}_{timestamp}").read_bytes()
+    tmp_file = Path(tempfile.gettempdir()) / f"dspy_{name}_{timestamp}"
+    module.save(str(tmp_file))
+    data = tmp_file.read_bytes()
     storage.write_bytes(path, data)
     logger.info("Saved optimized module %s to %s", name, path)
     return path

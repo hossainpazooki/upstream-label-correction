@@ -6,12 +6,15 @@ in female samples, and Missing-At-Random (MAR) imputation via NMF.
 
 from __future__ import annotations
 
+import logging
 import warnings
 
 import numpy as np
 import pandas as pd
 
 from core.constants import Y_CHROMOSOME_GENES
+
+logger = logging.getLogger(__name__)
 
 try:
     from sklearn.decomposition import NMF
@@ -172,6 +175,7 @@ class OmicsImputer:
                         best_error = error
                         best_k = k
                 except Exception:
+                    logger.debug("NMF rank-selection failed for k=%d", k, exc_info=True)
                     continue
 
         return best_k

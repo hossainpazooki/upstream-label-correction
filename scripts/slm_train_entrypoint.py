@@ -38,7 +38,11 @@ def main() -> None:
     backend = GCSStorageBackend(bucket_name)
     data_bytes = backend.read_bytes(blob_path)
 
-    local_data_path = "/tmp/slm_training_data.json"
+    import tempfile
+    from pathlib import Path as _Path
+
+    tmp_dir = _Path(tempfile.gettempdir())
+    local_data_path = str(tmp_dir / "slm_training_data.json")
     with open(local_data_path, "wb") as f:
         f.write(data_bytes)
 
@@ -52,7 +56,7 @@ def main() -> None:
     # Run training
     from training.finetune_slm import load_quantized_model, prepare_datasets, train
 
-    output_dir = os.environ.get("AIP_MODEL_DIR", "/tmp/slm_output")
+    output_dir = os.environ.get("AIP_MODEL_DIR") or str(tmp_dir / "slm_output")
     model, tokenizer = load_quantized_model(config)
     train_ds, val_ds, test_ds = prepare_datasets(local_data_path)
     metrics = train(model, tokenizer, train_ds, val_ds, config, output_dir)

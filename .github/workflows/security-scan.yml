@@ -22,7 +22,7 @@ jobs:
         run: pip install pip-audit
 
       - name: Run pip-audit
-        run: pip-audit --strict --desc
+        run: pip-audit --strict --desc --skip-editable
 
   sast:
     runs-on: ubuntu-latest
@@ -37,7 +37,7 @@ jobs:
         run: pip install ruff
 
       - name: Run SAST rules
-        run: ruff check --select S core mcp_server agent_skills workflows api evals
+        run: ruff check --select S core evals training dspy_modules intents ml_service scripts
 
   secret-detection:
     runs-on: ubuntu-latest

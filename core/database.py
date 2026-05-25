@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from sqlalchemy import MetaData, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -116,4 +119,4 @@ def init_composite_index(table_name: str) -> None:
             )
             conn.commit()
     except Exception:
-        pass
+        logger.warning("Failed to ensure index %s on %s", index_name, table_name, exc_info=True)
