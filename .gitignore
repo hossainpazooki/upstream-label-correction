@@ -47,6 +47,10 @@ data/processed/
 *.h5
 *.onnx
 models/
+# ...but not the Go models package (the blanket models/ rule above targets
+# trained-model artifacts, not source code).
+!intent-controller/internal/models/
+!intent-controller/internal/models/**
 
 # Coverage
 .coverage
