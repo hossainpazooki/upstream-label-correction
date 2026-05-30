@@ -7,7 +7,7 @@
 > routes proxying to it. Infrastructure also moved from Terraform/Python-Pulumi
 > to TypeScript Pulumi in `infra-ts/`.
 >
-> **The active plan is [`PULUMI_MIGRATION_PLAN.md`](./PULUMI_MIGRATION_PLAN.md).**
+> **The active plan is [`PULUMI_MIGRATION_PLAN.md`](../../PULUMI_MIGRATION_PLAN.md).**
 > Use this file only to understand earlier history. In particular, Phase 3
 > ("Workflow Orchestration Migration" to TS) below is **no longer in effect** —
 > see Migration 1 in the Pulumi plan.

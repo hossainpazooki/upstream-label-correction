@@ -1,9 +1,8 @@
 name: Deploy via Pulumi
 
-# Auto-trigger on CI completion disabled: workflow references deleted files
-# (Dockerfile, Dockerfile.worker, Dockerfile.mcp, infra/) and GCP auth secrets
-# are not yet configured. Re-add `workflow_run` once the workflow is rewritten
-# for the infra-ts/ architecture and secrets are set.
+# Auto-trigger disabled until GCP OIDC secrets are configured in the repo.
+# Re-add `workflow_run` trigger once GCP_WORKLOAD_IDENTITY_PROVIDER,
+# GCP_SERVICE_ACCOUNT, and PULUMI_ACCESS_TOKEN secrets are set.
 on:
   workflow_dispatch:
     inputs:
@@ -47,23 +46,35 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      - name: Build and push API image
+      - name: Build and push web image
         run: |
-          docker build -t ${{ env.REGISTRY }}/api:${{ github.sha }} -t ${{ env.REGISTRY }}/api:latest .
-          docker push ${{ env.REGISTRY }}/api:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/api:latest
+          docker build -f web/Dockerfile \
+            -t ${{ env.REGISTRY }}/web:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/web:latest \
+            web/
+          docker push ${{ env.REGISTRY }}/web:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/web:latest
 
-      - name: Build and push Worker image
+      - name: Build and push ml-service image
         run: |
-          docker build -f Dockerfile.worker -t ${{ env.REGISTRY }}/worker:${{ github.sha }} -t ${{ env.REGISTRY }}/worker:latest .
-          docker push ${{ env.REGISTRY }}/worker:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/worker:latest
+          docker build -f Dockerfile.ml \
+            -t ${{ env.REGISTRY }}/ml-service:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/ml-service:latest \
+            .
+          docker push ${{ env.REGISTRY }}/ml-service:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/ml-service:latest
 
-      - name: Build and push MCP SSE image
+      - name: Build and push mcp-sse image
         run: |
-          docker build -f Dockerfile.mcp -t ${{ env.REGISTRY }}/mcp-sse:${{ github.sha }} -t ${{ env.REGISTRY }}/mcp-sse:latest .
+          docker build -f web/Dockerfile.mcp \
+            -t ${{ env.REGISTRY }}/mcp-sse:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/mcp-sse:latest \
+            web/
           docker push ${{ env.REGISTRY }}/mcp-sse:${{ github.sha }}
           docker push ${{ env.REGISTRY }}/mcp-sse:latest
+
+    outputs:
+      image-tag: ${{ github.sha }}
 
   deploy:
     needs: build-and-push
@@ -83,22 +94,26 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.11"
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: infra-ts/package-lock.json
 
       - name: Install Pulumi dependencies
-        run: pip install -r infra/requirements.txt
+        working-directory: infra-ts
+        run: npm ci
 
       - name: Pulumi Up
         uses: pulumi/actions@v5
         with:
           command: up
           stack-name: precision-genomics/${{ env.PULUMI_STACK }}
-          work-dir: infra
+          work-dir: infra-ts
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
 
   preview:
     if: github.event_name == 'pull_request'
@@ -119,31 +134,36 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.11"
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: infra-ts/package-lock.json
 
       - name: Install Pulumi dependencies
-        run: pip install -r infra/requirements.txt
+        working-directory: infra-ts
+        run: npm ci
 
       - name: Pulumi Preview
         uses: pulumi/actions@v5
         with:
           command: preview
           stack-name: precision-genomics/prod
-          work-dir: infra
+          work-dir: infra-ts
           comment-on-pr: true
           comment-on-pr-number: ${{ github.event.pull_request.number }}
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: CrossGuard Policy Check
         uses: pulumi/actions@v5
         with:
           command: preview
           stack-name: precision-genomics/prod
-          work-dir: infra
-          policyPacks: infra/policies
+          work-dir: infra-ts
+          policyPacks: infra-ts/policies
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          GOOGLE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}

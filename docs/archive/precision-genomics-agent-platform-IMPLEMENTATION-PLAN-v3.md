@@ -1,7 +1,7 @@
 # Precision Genomics Agent Platform — Implementation Plan
 
 **Target Role:** Applied AI Engineer, Life Sciences (Beneficial Deployments) — Anthropic  
-**Repository:** `precision-genomics-agent-platform`  
+**Repository:** `upstream-label-correction`  
 **Foundation:** precisionFDA Multi-Omics MSI Classification Challenge  
 **Author:** Hossain  
 **Date:** February 2026  
@@ -168,7 +168,7 @@ TSV files → Imputation (MAR/MNAR + NMF) → Multi-strategy feature selection
 **Objective:** Establish monorepo structure, CI, and development environment.
 
 ```
-precision-genomics-agent-platform/
+upstream-label-correction/
 ├── README.md
 ├── pyproject.toml                   # Unified Python project config
 ├── Dockerfile

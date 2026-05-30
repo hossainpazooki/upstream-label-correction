@@ -36,28 +36,34 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      - name: Build and push API image
+      - name: Build and push web image
         run: |
-          docker build -t ${{ env.REGISTRY }}/api:${{ github.sha }} -t ${{ env.REGISTRY }}/api:latest .
-          docker push ${{ env.REGISTRY }}/api:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/api:latest
+          docker build -f web/Dockerfile \
+            -t ${{ env.REGISTRY }}/web:${{ github.sha }} -t ${{ env.REGISTRY }}/web:latest \
+            web/
+          docker push ${{ env.REGISTRY }}/web:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/web:latest
 
-      - name: Build and push Worker image
+      - name: Build and push ml-service image
         run: |
-          docker build -f Dockerfile.worker -t ${{ env.REGISTRY }}/worker:${{ github.sha }} -t ${{ env.REGISTRY }}/worker:latest .
-          docker push ${{ env.REGISTRY }}/worker:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/worker:latest
+          docker build -f Dockerfile.ml \
+            -t ${{ env.REGISTRY }}/ml-service:${{ github.sha }} -t ${{ env.REGISTRY }}/ml-service:latest \
+            .
+          docker push ${{ env.REGISTRY }}/ml-service:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/ml-service:latest
 
-      - name: Build and push MCP SSE image
+      - name: Build and push mcp-sse image
         run: |
-          docker build -f Dockerfile.mcp -t ${{ env.REGISTRY }}/mcp-sse:${{ github.sha }} -t ${{ env.REGISTRY }}/mcp-sse:latest .
+          docker build -f web/Dockerfile.mcp \
+            -t ${{ env.REGISTRY }}/mcp-sse:${{ github.sha }} -t ${{ env.REGISTRY }}/mcp-sse:latest \
+            web/
           docker push ${{ env.REGISTRY }}/mcp-sse:${{ github.sha }}
           docker push ${{ env.REGISTRY }}/mcp-sse:latest
 
-      - name: Deploy API to Cloud Run
+      - name: Deploy web to Cloud Run
         run: |
-          gcloud run deploy precision-genomics-api \
-            --image ${{ env.REGISTRY }}/api:${{ github.sha }} \
+          gcloud run deploy precision-genomics-web \
+            --image ${{ env.REGISTRY }}/web:${{ github.sha }} \
             --region ${{ env.REGION }} \
             --platform managed \
             --no-allow-unauthenticated \
@@ -69,10 +75,10 @@ jobs:
             --memory 4Gi \
             --cpu 2
 
-      - name: Deploy Worker to Cloud Run
+      - name: Deploy ml-service to Cloud Run
         run: |
-          gcloud run deploy precision-genomics-worker \
-            --image ${{ env.REGISTRY }}/worker:${{ github.sha }} \
+          gcloud run deploy precision-genomics-ml-service \
+            --image ${{ env.REGISTRY }}/ml-service:${{ github.sha }} \
             --region ${{ env.REGION }} \
             --platform managed \
             --no-allow-unauthenticated \

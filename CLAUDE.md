@@ -1,4 +1,4 @@
-# Project: precision-genomics-agent-platform
+# Project: upstream-label-correction
 
 ## Context Management (CRITICAL)
 * Check /context before starting any major task

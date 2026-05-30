@@ -1,13 +1,13 @@
 # GCP Deployment Guide
 
 > ⚠️ **OUTDATED — describes the retired Python-Pulumi + GCP Workflows stack.**
-> Infrastructure has migrated to **TypeScript Pulumi in [`infra-ts/`](../infra-ts/)**,
+> Infrastructure has migrated to **TypeScript Pulumi in [`infra-ts/`](../../infra-ts/)**,
 > and orchestration moved off GCP Workflows (now the Go `intent-controller` +
 > the workflow engine). The GCP project facts (project ID, region, APIs, IAM)
 > in this guide are still accurate and useful, but the `pulumi up` / Python SDK
 > and GCP Workflows sections below no longer reflect the codebase.
 >
-> **For current deploy steps see [`../DEPLOY.md`](../DEPLOY.md).**
+> **For current deploy steps see [`DEPLOY.md`](../../DEPLOY.md).**
 
 This document covers deploying the Precision Genomics Agent Platform to Google Cloud Platform using Pulumi (Python SDK), Cloud Run, GCP Workflows, and Vertex AI.
 

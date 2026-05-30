@@ -236,8 +236,8 @@ flowchart TD
 
 ```bash
 # Clone and install
-git clone https://github.com/your-org/precision-genomics-agent-platform.git
-cd precision-genomics-agent-platform
+git clone https://github.com/hossainpazooki/upstream-label-correction.git
+cd upstream-label-correction
 
 # All dependencies (ML, LLM, MCP, GCP, dev)
 pip install -e ".[all]"
@@ -277,7 +277,7 @@ pytest tests/test_evals/  # Specific module
 ## Project Structure
 
 ```
-precision-genomics-agent-platform/
+upstream-label-correction/
 ├── agent_skills/                  # High-level agent skills
 │   ├── biomarker_discovery.py     #   End-to-end biomarker panel identification
 │   ├── cross_omics_integration.py #   Cross-omics concordance analysis
@@ -396,34 +396,22 @@ All GCP features are optional and gated by environment variables. Local developm
 
 ### Infrastructure (Pulumi)
 
-Infrastructure is managed with [Pulumi](https://www.pulumi.com/) using the Python SDK. The `infra/` directory contains 9 reusable `ComponentResource` classes that map 1:1 to the GCP services above.
+Infrastructure is managed with [Pulumi](https://www.pulumi.com/) using the **TypeScript SDK**. The `infra-ts/` directory contains 8 reusable `ComponentResource` classes that map 1:1 to the GCP services above.
 
 ```bash
-cd infra
-pip install -r requirements.txt
+cd infra-ts
+npm ci
 pulumi stack select dev
 pulumi preview        # Review changes
 pulumi up             # Deploy
 ```
 
 **Key features:**
-- **CrossGuard policies** — 8 compliance policies enforce PITR, versioning, private networking, and resource limits
-- **Infrastructure tests** — `pytest infra/tests/` validates resource configuration with mocked Pulumi runtime
-- **Automation API** — scripts for ML-triggered deployments (`deploy_on_model_retrain.py`) and ephemeral PR environments (`ephemeral_env.py`)
-- **Multi-environment** — separate stack configs for dev, staging, and prod
-- **CI/CD** — GitHub Actions runs `pulumi preview` on PRs and `pulumi up` on merge to main
+- **CrossGuard policies** — `infra-ts/policies/` enforces compliance guardrails (PITR, versioning, private networking, resource limits) on the stack
+- **Multi-environment** — per-stack config (`Pulumi.dev.yaml`)
+- **CI/CD** — GitHub Actions; note the automated GCP deploy is currently **disabled** pending the `infra-ts`/Pulumi workflow rewrite (see [DEPLOY.md](DEPLOY.md))
 
-<details>
-<summary>Legacy Terraform (deprecated)</summary>
-
-```bash
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-terraform init && terraform apply
-```
-</details>
-
-See [docs/GCP_DEPLOYMENT.md](docs/GCP_DEPLOYMENT.md) for full instructions.
+See [DEPLOY.md](DEPLOY.md) for full deployment instructions. The legacy Terraform and Python-Pulumi stacks have been retired — see [docs/archive/](docs/archive/).
 
 ## Documentation
 
@@ -431,9 +419,11 @@ See [docs/GCP_DEPLOYMENT.md](docs/GCP_DEPLOYMENT.md) for full instructions.
 - [Intent Workflow](docs/INTENT_WORKFLOW.md) — intent lifecycle, state machine, and infrastructure resolution
 - [Scientific Methodology](docs/SCIENTIFIC_METHODOLOGY.md) — statistical methods and biological rationale
 - [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible AI practices and eval design
-- [GCP Deployment](docs/GCP_DEPLOYMENT.md) — Pulumi infrastructure and CI/CD
+- [Deployment](DEPLOY.md) — infra-ts/Pulumi infrastructure, image build/push, and CI/CD
+- [Pulumi Migration Plan](PULUMI_MIGRATION_PLAN.md) — active Go + TypeScript migration plan
 - [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, and GPU training details
 - [Synthetic Data Strategy](docs/SYNTHETIC_DATA_STRATEGY.md) — data generation methodology
+- [Archived docs](docs/archive/) — superseded plans and deployment guides (historical reference)
 
 ## License
 
