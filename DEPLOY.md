@@ -1,95 +1,147 @@
-# Precision Genomics — GCP Deployment State
+# Precision Genomics — Deployment
 
-**Date:** 2026-03-12
 **GCP Project:** `prec-genomics-agent` (project number: `677590965589`)
 **Region:** `us-central1`
-**Billing Account:** `01922E-FF924F-B87B2A`
+
+Infrastructure is defined as **TypeScript Pulumi** in [`infra-ts/`](./infra-ts/)
+(migrated from the earlier Terraform and Python-Pulumi stacks, both now retired).
 
 ---
 
-## Completed
+## Architecture
 
-### Phase 1: GCP Project Setup
-- Project created and billing linked
-- All required APIs enabled (Cloud Run, Cloud SQL, Redis, Secret Manager, Artifact Registry, Vertex AI, Workflows, VPC Access, Compute, etc.)
+Three Cloud Run services behind a Serverless VPC Connector, plus managed data
+services and Vertex AI — all defined in `infra-ts/index.ts`.
 
-### Phase 2: Terraform Pass 1 — Infrastructure (19 resources)
-- VPC + VPC Access Connector (`module.networking`)
-- Cloud SQL PostgreSQL 15 instance `precision-genomics-pg` (`module.cloud_sql`)
-- Memorystore Redis 1GB BASIC (`module.memorystore`)
-- 3 GCS buckets (`module.gcs`)
-- Artifact Registry repo `precision-genomics` (`module.artifact_registry`)
-- Secret Manager secrets: `ANTHROPIC_API_KEY`, `DATABASE_PASSWORD` (`module.secret_manager`)
-- Vertex AI Tensorboard (`module.vertex_ai`) — metadata store intentionally omitted (provider bug)
+| Service | Image | Port | Auth | Notes |
+|---|---|---|---|---|
+| `precision-genomics-web` | `web:latest` (Next.js) | 3000 | public | min 1 / max 10 instances |
+| `precision-genomics-ml` | `ml:latest` (Python ML) | 8000 | internal | scale-to-zero, 8Gi, 900s timeout |
+| `precision-genomics-mcp` | `mcp:latest` (MCP server) | 8080 | public | min 1 / max 5 instances |
 
-### Phase 3: Docker Images Built & Pushed
-All three images pushed to `us-central1-docker.pkg.dev/prec-genomics-agent/precision-genomics/`:
-- `api:latest`
-- `worker:latest`
-- `mcp-sse:latest`
+> **Not yet in `infra-ts/`:** the Go `intent-controller` (port 8090) builds and
+> runs (`intent-controller/Dockerfile`) but is **not provisioned by Pulumi
+> yet** — no `CloudRunService` exists for it in `index.ts`. Adding it is a
+> follow-up to Migration 1 in [`PULUMI_MIGRATION_PLAN.md`](./PULUMI_MIGRATION_PLAN.md).
 
-### Phase 5 (moved up): Secret Manager IAM
-Granted `roles/secretmanager.secretAccessor` to `677590965589-compute@developer.gserviceaccount.com` on both secrets.
+Backing services: Cloud SQL (PostgreSQL), Memorystore Redis, 3 GCS buckets,
+Artifact Registry (`precision-genomics`), Secret Manager
+(`ANTHROPIC_API_KEY`, `DATABASE_PASSWORD`), Vertex AI.
 
-### Bug Fixes Applied (not yet committed)
-1. **Vertex AI metadata store** — removed `google_vertex_ai_metadata_store` from Terraform and both Pulumi components (google-beta provider bug causes perpetual create/destroy cycle)
-2. **Biomarker workflow YAML** — fixed `workflows/definitions/biomarker_discovery.yaml`: initialized `imputation_results` and `feature_panels` as empty lists, added `collect_imputation` and `collect_features` assign steps in parallel loop
-3. **Terraform semicolons** — expanded single-line variable blocks in `cloud_sql/main.tf`, `secret_manager/main.tf`, `vertex_ai/main.tf` (done in earlier session)
-
-### Phase 4: Terraform Pass 2 — Cloud Run & Workflows (4 added, 3 replaced)
-- Cloud Run API: `https://precision-genomics-api-dwl572akmq-uc.a.run.app`
-- Cloud Run Worker: `https://precision-genomics-worker-dwl572akmq-uc.a.run.app`
-- Cloud Run MCP SSE: `https://precision-genomics-mcp-sse-dwl572akmq-uc.a.run.app`
-- 3 GCP Workflows: biomarker-discovery, sample-qc, prompt-optimization
-
-### Phase 6: Health Checks Verified
-All three services returning healthy (requires auth token):
-- API: `{"status":"healthy","version":"0.1.0"}`
-- Worker: `{"status":"ok"}` — 20 activity handlers registered
-- MCP SSE: `{"status":"healthy","transport":"sse"}`
+> **Orchestration note:** GCP Workflows are no longer used. Intent lifecycle and
+> workflow orchestration run in the Go `intent-controller`
+> (`intent-controller/internal/workflow`). See
+> [`PULUMI_MIGRATION_PLAN.md`](./PULUMI_MIGRATION_PLAN.md).
 
 ---
 
-## Authentication
-Services require authentication (no public access). Use:
+## Prerequisites
+
+- `gcloud` installed and authenticated (`gcloud auth login`)
+- [Pulumi](https://www.pulumi.com/docs/install/) >= 3.0
+- Node.js 20+
+- A configured Pulumi stack (`dev`) — see `infra-ts/Pulumi.dev.yaml`
+
+Enable required APIs (one-time):
 ```bash
-curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" <URL>/health
+gcloud services enable \
+  run.googleapis.com sqladmin.googleapis.com redis.googleapis.com \
+  secretmanager.googleapis.com artifactregistry.googleapis.com \
+  aiplatform.googleapis.com vpcaccess.googleapis.com \
+  servicenetworking.googleapis.com \
+  --project=prec-genomics-agent
 ```
 
-## Useful Commands
+---
+
+## Deploy with Pulumi
 
 ```bash
-# List Cloud Run services
-gcloud run services list --region=us-central1 --project=prec-genomics-agent
+cd infra-ts
+npm ci
 
-# Get all Terraform outputs
-cd terraform && terraform output
+# Configure secrets on the stack (first time only)
+pulumi config set --secret anthropicApiKey <ANTHROPIC_API_KEY>
+pulumi config set --secret dbPassword <DB_PASSWORD>
 
-# Health checks (with auth)
+# Preview and apply
+pulumi preview --stack dev
+pulumi up --stack dev
+```
+
+Stack outputs (URLs, connection names, bucket names) after `pulumi up`:
+```bash
+pulumi stack output            # all outputs
+pulumi stack output webUrl
+pulumi stack output mlServiceUrl
+pulumi stack output mcpUrl
+```
+
+### Build & push images
+
+Images must exist in Artifact Registry before `pulumi up` can roll out the
+Cloud Run services. Build and push each:
+```bash
+REGISTRY=us-central1-docker.pkg.dev/prec-genomics-agent/precision-genomics
+gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+docker build -f web/Dockerfile     -t $REGISTRY/web:latest web/   && docker push $REGISTRY/web:latest
+docker build -f Dockerfile.ml      -t $REGISTRY/ml:latest  .      && docker push $REGISTRY/ml:latest
+docker build -f web/Dockerfile.mcp -t $REGISTRY/mcp:latest web/   && docker push $REGISTRY/mcp:latest
+```
+
+> The `intent-controller` image (`docker build -f intent-controller/Dockerfile
+> intent-controller/`) is not consumed by `pulumi up` yet — build/push it only
+> once a `CloudRunService` for it is added to `infra-ts/index.ts`.
+
+---
+
+## CI/CD status
+
+⚠️ **Automated GCP deploy is currently disabled.** The
+`.github/workflows/deploy-gcp.yml` workflow auto-trigger was removed (commit
+`d2a263f`) because it referenced deleted Dockerfiles and the GCP auth secrets
+are not yet configured. It is now `workflow_dispatch`-only and still encodes
+the **old** `gcloud run deploy` flow rather than `pulumi up`.
+
+**Before re-enabling, the workflow needs to be rewritten to:**
+1. Build/push the four images (paths above).
+2. Run `pulumi up` from `infra-ts/` instead of imperative `gcloud run deploy`.
+3. Authenticate via Workload Identity Federation — requires repo secrets
+   `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`.
+
+Until then, deploy manually with the Pulumi steps above.
+
+---
+
+## Authentication (internal services)
+
+`web` and `mcp` are public; `ml` is internal and requires an identity token:
+```bash
 TOKEN=$(gcloud auth print-identity-token)
-curl -s -H "Authorization: Bearer $TOKEN" "https://precision-genomics-api-dwl572akmq-uc.a.run.app/health"
-curl -s -H "Authorization: Bearer $TOKEN" "https://precision-genomics-worker-dwl572akmq-uc.a.run.app/health"
-curl -s -H "Authorization: Bearer $TOKEN" "https://precision-genomics-mcp-sse-dwl572akmq-uc.a.run.app/health"
-
-# List workflows
-gcloud workflows list --location=us-central1 --project=prec-genomics-agent
+curl -s -H "Authorization: Bearer $TOKEN" "$(cd infra-ts && pulumi stack output mlServiceUrl)/health"
 ```
+
+---
 
 ## Rollback
 
 ```bash
-# Tear down all infrastructure
-cd terraform && terraform destroy
+# Roll back to the previous Pulumi state
+cd infra-ts && pulumi stack history && pulumi up --stack dev   # after reverting code
 
-# Nuclear option — delete entire project
-gcloud projects delete prec-genomics-agent
+# Tear down all infrastructure
+cd infra-ts && pulumi destroy --stack dev
 ```
 
+---
+
 ## Estimated Monthly Cost
+
 | Service | Estimate |
-|---------|----------|
-| Cloud SQL (db-custom-2-8192) | ~$50-70 |
+|---|---|
+| Cloud SQL | ~$50–70 |
 | Memorystore Redis (1GB BASIC) | ~$35 |
-| Cloud Run (API + Worker scale to 0) | pay-per-use |
-| Cloud Run (MCP SSE min 1 instance) | ~$15-25 |
-| **Total baseline** | **~$100-130** |
+| Cloud Run (web + mcp min 1 instance) | ~$30–50 |
+| Cloud Run (ml scale-to-zero) | pay-per-use |
+| **Total baseline** | **~$115–155** |

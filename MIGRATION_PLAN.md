@@ -1,5 +1,17 @@
 # Migration Plan: TypeScript + Next.js Full-Stack with Python ML Core
 
+> ⚠️ **SUPERSEDED — historical reference only.**
+> This plan put the workflow engine and intent lifecycle in TypeScript. That
+> decision was reversed: **workflow orchestration and intent lifecycle now live
+> in the Go `intent-controller`** (`intent-controller/`), with the Next.js API
+> routes proxying to it. Infrastructure also moved from Terraform/Python-Pulumi
+> to TypeScript Pulumi in `infra-ts/`.
+>
+> **The active plan is [`PULUMI_MIGRATION_PLAN.md`](./PULUMI_MIGRATION_PLAN.md).**
+> Use this file only to understand earlier history. In particular, Phase 3
+> ("Workflow Orchestration Migration" to TS) below is **no longer in effect** —
+> see Migration 1 in the Pulumi plan.
+
 ## Architecture Overview
 
 ```
