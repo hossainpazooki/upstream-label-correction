@@ -1,429 +1,267 @@
-# Precision Genomics Agent Platform
+# CLUE — Closed-Loop Upstream Error-correction
 
-An AI-orchestrated platform for multi-omics MSI classification, built on the [precisionFDA NCI-CPTAC Multi-omics Mislabeling Challenge](https://www.nature.com/articles/s41591-018-0180-x).
+> **An agentic loop that generates fidelity-verified synthetic multi-omics cohorts to measure — and ultimately improve — label-error detection at corruption rates real data cannot probe.**
 
-## The Challenge
+Built on the [precisionFDA NCI-CPTAC Multi-omics Sample Mislabeling Correction Challenge](https://www.nature.com/articles/s41591-018-0180-x).
 
-As precision medicine moves beyond genomics to integrate proteomics, transcriptomics, and clinical data, the integrity of multi-omics datasets becomes critical. Sample mislabeling — accidental swapping of patient samples or data — is a [known obstacle in translational research](https://www.nature.com/articles/s41591-018-0180-x) that can lead to patients receiving the wrong treatment with severe, irreversible consequences.
+---
 
-The NCI-CPTAC and FDA launched the precisionFDA Multi-omics Enabled Sample Mislabeling Correction Challenge ([Boja et al., *Nature Medicine* 2018](https://www.nature.com/articles/s41591-018-0180-x)) to address this problem. The challenge asked teams to develop computational algorithms that detect and correct mislabeled samples across clinical, proteomics, and RNA-Seq data — ensuring that **the right data is attributed to the right patient**.
+## The problem: you can't measure a detector where it matters
 
-The challenge was structured in two subchallenges: (1) detect mislabeled samples using clinical + proteomics data, then (2) correct mislabels using all three data types (clinical, proteomics, RNA-Seq). This platform implements solutions for both, while also classifying MSI status — a biomarker for immunotherapy response — from the same multi-omics data.
+In multi-omics precision medicine, the most dangerous errors happen **upstream**, before any model runs: a patient's proteomics, RNA-Seq, or clinical record gets swapped with another's. Mislabeled samples silently corrupt every downstream conclusion — and in the clinic, attribute the wrong data to the wrong patient. The precisionFDA / NCI-CPTAC challenge ([Boja et al., *Nature Medicine* 2018](https://www.nature.com/articles/s41591-018-0180-x)) framed this as a computational task: **detect and correct mislabeled samples** across clinical, proteomics, and RNA-Seq data.
 
-The dataset: 80 tumor samples with paired proteomics (~7K genes) and RNA-Seq (~15K genes) measurements plus clinical metadata including MSI status and gender. The catch: the data contains intentionally introduced mislabels, missing values, and cross-omics discordance that must be resolved before any downstream analysis.
+The catch for anyone building a *detector*: **real data can't tell you how good your detector is at the rates you care about.**
+
+- The challenge test set is **~80 samples with unknown, hidden mislabels** — you can't compute precision/recall against ground truth you don't have.
+- You can't dial the corruption rate. Does your detector hold at 2%? 15%? 30%? Real cohorts give you one fixed, unknown operating point.
+- Cross-validation makes evaluation stochastic, so regressions hide in the noise.
+
+CLUE's answer: **manufacture the ground truth.** Generate synthetic cohorts that carry the same biological signal a real detector relies on, inject known label corruption at a controllable rate and scale, run the detector, and score it against exactly what you planted.
+
+---
+
+## The idea: close the loop
 
 ```mermaid
 flowchart LR
-    A[80 Tumor Samples] --> B["Proteomics\n~7K genes"]
-    A --> C["RNA-Seq\n~15K genes"]
-    A --> D["Clinical\nMSI + Gender"]
-    B & C & D --> E{Known Issues}
-    E --> F["Mislabeled\nSamples"]
-    E --> G["Missing Data\n10-15%"]
-    E --> H["Cross-Omics\nDiscordance"]
+    G["①  GENERATE\nSynthetic multi-omics cohort\nwith injected label swaps\n(known ground truth)"]
+    V["②  VERIFY FIDELITY\nCohort carries the signal\na real detector relies on"]
+    M["③  MEASURE\nRun detector → score flags\nvs. planted ground truth\nacross corruption rates"]
+    I["④  IMPROVE\nFeed scores back:\nretune / regenerate"]
+    G --> V --> M --> I
+    I -. "next iteration" .-> G
 ```
 
-## Methodology
+| Stage | What it does | Backed by | Status |
+|---|---|---|---|
+| ① **Generate** | Synthetic cohorts with planted MSI/gender signal and injected proteomics/RNA-Seq/clinical swaps; emits a ground-truth record of every swap | `core/synthetic.py` → `SyntheticCohortGenerator` | ✅ implemented |
+| ② **Verify fidelity** | Confirm the cohort is *detectable-by-construction* — biological signal is recoverable and reproducible, so results transfer to real data | `evals/biological_validity.py`, `evals/reproducibility.py` | 🔶 partial |
+| ③ **Measure** | Run the COSMO detector, compare flagged samples to the planted swaps, report precision/recall/F1 swept over corruption rate | detector ✅ (`core/cross_omics_matcher.py`, `core/classifier.py`); scoring-vs-ground-truth ⭕ | 🔶 the closing edge |
+| ④ **Improve** | Feed verification + measurement back to retune the detector or regenerate harder cohorts | intent lifecycle (`intents/`, `intent-controller/`) runs observe→decide→act→verify; the feedback-to-regenerate edge ⭕ | ⭕ designed |
 
-The platform implements a four-stage pipeline inspired by the COSMO (Cross-Omics Sample Matching for Omics) approach.
+> **Honest status.** The **generate** and **detect** halves are real and tested. The two edges that literally *close* the loop — (③) scoring detection against the generator's planted ground truth across corruption rates, and (④) feeding that score back to regenerate/retune — are the active build-out. See [Implementation status](#implementation-status). This README illustrates the CLUE architecture and is explicit about what is wired vs. designed; it does not claim a self-improving loop that isn't there yet.
+
+---
+
+## ① Generate — synthetic cohorts with known corruption
+
+`SyntheticCohortGenerator` (`core/synthetic.py`) produces a complete multi-omics dataset whose every defect is recorded as ground truth.
+
+```python
+from core.synthetic import SyntheticCohortGenerator
+
+gen = SyntheticCohortGenerator(
+    n_samples=80,
+    n_genes_proteomics=5000,
+    n_genes_rnaseq=15000,
+    msi_fraction=0.4,
+    mislabel_fraction=0.05,   # ← dial the corruption rate
+    seed=42,
+)
+cohort = gen.generate_cohort()
+# cohort["clinical"], ["proteomics"], ["rnaseq"], ["ground_truth"]
+```
+
+The planted ground truth — the answer key a real test set never gives you:
+
+```python
+cohort["ground_truth"] = {
+    "mislabeled_samples": [...],          # which samples were swapped
+    "mislabel_type":      {sid: "proteomics" | "rnaseq" | "clinical"},
+    "swap_pairs":         [(sid_a, sid_b), ...],
+    "msi_h_samples":      [...],
+    "gender_map":         {sid: "Male" | "Female"},
+}
+```
+
+**Signal layers** (so the cohort behaves like real data, not noise):
 
 ```mermaid
 flowchart TD
-    S1["Stage 1: Impute\nNMF rank selection\nMNAR Y-chr handling"]
-    S2["Stage 2: Match\nSpearman correlation\nHungarian algorithm"]
-    S3["Stage 3: Predict\n4-method feature selection\nEnsemble classifier + meta-learner"]
-    S4["Stage 4: Validate\nDual-path concordance\nHIGH / REVIEW / PASS"]
+    BASE["Log-normal base expression"] --> L1["MSI phenotype signal\npathway fold-changes"]
+    BASE --> L2["Gender signal\nY-chromosome high / zero"]
+    L1 & L2 --> L3["Cross-omics concordance\nshared latent factors"]
+    L3 --> L4["Mislabel injection\nproteomics / RNA-Seq / clinical swaps"]
+    L4 --> L5["Structured missingness\nMNAR + MAR batch dropout"]
+```
+
+**Corruption-rate & scale controls** — the levers real data doesn't have:
+
+| Lever | Parameter | Effect |
+|---|---|---|
+| Corruption rate | `mislabel_fraction` | Fraction of samples swapped (`max(2, ⌊n·fraction⌋)`, paired) |
+| Cohort size | `n_samples` | 20 → 2,000+ |
+| Feature dimension | `n_genes_proteomics`, `n_genes_rnaseq` | Stress the high-dimensional / low-N regime |
+| Class balance | `msi_fraction` | Match or stress the ~15% MSI-H clinical rate |
+| Determinism | `seed` | Same seed → byte-identical cohort → exact regression tests |
+
+**Presets** (as defined in code):
+
+| Preset | Samples | Proteomics genes | RNA-Seq genes | Use |
+|---|---|---|---|---|
+| `SyntheticCohortGenerator.unit()` | 20 | 100 | 150 | Unit tests (<1s) |
+| `SyntheticCohortGenerator.integration()` | 80 | 5,000 | 15,000 | Integration — matches challenge train size |
+| `SyntheticCohortGenerator.benchmark()` | 500 | 7,000 | 15,000 | Scale / performance |
+
+---
+
+## ②–③ Verify & Measure — the COSMO detector
+
+The detector is a four-stage pipeline inspired by **COSMO** (Cross-Omics Sample Matching), the post-challenge methodology from the top-3 teams. It produces the flags that stage ③ scores against ground truth.
+
+```mermaid
+flowchart LR
+    S1["Stage 1 · Impute\nNMF rank selection\nMNAR Y-chr handling"]
+    S2["Stage 2 · Match\nSpearman + Hungarian\ndistance matrix"]
+    S3["Stage 3 · Predict\n4-method selection\nensemble + meta-learner"]
+    S4["Stage 4 · Validate\ndual-path concordance\nHIGH / REVIEW / PASS"]
     S1 --> S2 --> S3 --> S4
 ```
 
-**Stage 1 — Imputation.** Missing values are classified as MNAR (missing-not-at-random, below detection limit) or MAR (missing-at-random, batch dropout). MNAR values use minimum-value imputation; MAR values use NMF-based matrix completion with automatic rank selection. Y-chromosome genes receive gender-stratified handling.
+- **Match** (`core/cross_omics_matcher.py`) — `identify_mismatches()` builds a Spearman distance matrix, solves optimal assignment with the Hungarian algorithm over 100 subsampled iterations, and flags samples whose `mismatch_frequency > 0.5`. Model-free; catches proteomics↔RNA-Seq discordance.
+- **Predict** (`core/classifier.py`) — an ensemble of 4 classifiers × 2 phenotype strategies (gender, MSI) stacked into a meta-learner; flags samples whose molecular phenotype contradicts their annotation.
+- **Dual-validate** (`core/cross_omics_matcher.py`) — `dual_validate()` cross-checks the two independent flag sources: **HIGH** (both agree) / **REVIEW** (one) / **PASS** (neither). Two-path concordance is what makes a mismatch call trustworthy enough to act on.
 
-**Stage 2 — Cross-Omics Matching.** Proteomics and RNA-Seq samples are matched using Spearman correlation across shared genes, producing a distance matrix solved by the Hungarian algorithm for optimal assignment. Mismatched samples are flagged.
+**Fidelity verification (②)** keeps the synthetic cohort honest — a detector tuned on signal-free noise wouldn't transfer to real data. Today this is enforced by the biological-validity and reproducibility evals (the planted MSI pathway genes must be recoverable; the same seed must reproduce results). A dedicated "is this corruption detectable-by-construction" gate is part of the closing work.
 
-**Stage 3 — Feature Selection & Classification.** Four independent feature selection methods vote on the final biomarker panel. An ensemble classifier (logistic regression + random forest + gradient boosting) with a meta-learner produces MSI predictions.
+**Detection measurement (③)** is the loop's key edge. The pieces exist — the generator emits `swap_pairs`, the detector emits flags, and the classifier already computes precision/recall/F1 — but they are **not yet wired into a single eval** that scores flags against the *synthetic* ground truth and sweeps `mislabel_fraction`. That eval is the highest-value next step (tracked in the project tasks).
 
-**Stage 4 — Dual Validation.** Proteomics-only and RNA-Seq-only predictions are compared. Concordant predictions receive HIGH confidence; discordant ones are flagged for REVIEW.
+---
 
-### MSI Pathway Biomarkers
+## ④ Improve — the agentic loop
 
-| Pathway | Genes | Biological Basis |
-|---------|-------|-----------------|
-| Immune Infiltration | PTPRC, ITGB2, LCP1, NCF2 | Leukocyte markers elevated in MSI-H |
-| Interferon Response | GBP1, GBP4, IRF1, IFI35, WARS | IFN-gamma signaling via neoantigens |
-| Antigen Presentation | TAP1, TAPBP, LAG3 | MHC-I pathway in MSI-H tumors |
-| Mismatch Repair Adjacent | CIITA, TYMP | Co-regulated with MMR loci |
-
-### Feature Selection Methods
-
-| Method | Algorithm | Selection Criterion |
-|--------|-----------|-------------------|
-| ANOVA | One-way F-test | Bonferroni + BH correction |
-| LASSO | LogisticRegressionCV (L1) | Non-zero coefficients |
-| NSC | Soft-thresholded centroids | Cross-validated threshold |
-| Random Forest | GridSearchCV, 500 trees | Gini importance ranking |
-
-## System Architecture
-
-```mermaid
-flowchart TB
-    subgraph Agent["Agent Layer"]
-        Claude["Claude (Sonnet/Opus)"]
-    end
-    subgraph Skills["Skill Layer"]
-        BD[Biomarker Discovery]
-        QC[Sample QC]
-        CO[Cross-Omics Integration]
-        LG[Literature Grounding]
-    end
-    subgraph MCP["MCP Tool Layer (11 tools)"]
-        T1[load_dataset]
-        T2[impute_missing]
-        T3[select_biomarkers]
-        T4[run_classification]
-        T5[match_cross_omics]
-        TI["express_intent\nget_intent_status"]
-        T6["... +4 more"]
-    end
-    subgraph Intent["Intent Lifecycle"]
-        IC["Intent Controller\nobserve-decide-act-verify"]
-        IR["Infra Resolver\nPulumi Automation API"]
-        AL["Assurance Loop\nEval Metrics"]
-    end
-    subgraph Core["Core ML Engine"]
-        IMP[Imputation]
-        FS[Feature Selection]
-        CLF[Classifier]
-        COM[Cross-Omics Matcher]
-    end
-    subgraph Infra["Infrastructure"]
-        WF[GCP Workflows]
-        API[FastAPI]
-        GCP[Vertex AI / GCS]
-    end
-    Claude --> Skills
-    Skills --> MCP
-    MCP --> Intent
-    MCP --> Core
-    Intent --> IR
-    Intent --> AL
-    IC --> Core
-    IR --> Infra
-    Core --> Infra
-```
-
-### MCP Tools
-
-| Tool | Purpose |
-|------|---------|
-| `load_dataset` | Load multi-omics TSV data with summary stats |
-| `impute_missing` | MNAR/MAR classification + NMF imputation |
-| `check_availability` | Gene availability scoring and filtering |
-| `select_biomarkers` | 4-method ensemble feature selection |
-| `run_classification` | Ensemble classifier training + CV |
-| `match_cross_omics` | Distance matrix + Hungarian matching |
-| `evaluate_model` | F1, precision, recall, ROC-AUC |
-| `explain_features` | Biological pathway explanations (Claude) |
-| `explain_features_local` | SLM-based explanations (BioMistral) |
-| `express_intent` | Express an intent (analysis/training/validation) and begin its lifecycle |
-| `get_intent_status` | Check intent progress, workflow state, and eval results |
-
-### Evaluation Framework
-
-| Eval | Metric | Threshold |
-|------|--------|-----------|
-| Biological Validity | MSI pathway coverage | >= 60% |
-| Hallucination Detection | PubMed citation verification | >= 90% |
-| Reproducibility | Pairwise Jaccard over 10 runs | >= 85% |
-| Benchmark Comparison | Overlap with published signatures | Any |
-| SLM Eval | Combined validity + hallucination for SLM | Pass both |
-
-### Intent Lifecycle
-
-The platform implements an **intent lifecycle** layer inspired by intent-based networking (IETF RFC 9315) that formalizes agent goals as infrastructure-level concerns.
+CLUE runs as an **intent lifecycle** (inspired by intent-based networking, IETF RFC 9315): an agent declares a goal, the platform provisions what it needs, executes, and verifies against evals before declaring success.
 
 ```mermaid
 flowchart LR
-    subgraph Observe["Observe"]
-        D["DECLARED\n(intent expressed)"]
-    end
-    subgraph Decide["Decide"]
-        R["RESOLVING\n(provision infra)"]
-    end
-    subgraph Act["Act"]
-        A["ACTIVE\n(workflows running)"]
-    end
-    subgraph Verify["Verify"]
-        V["VERIFYING\n(eval assurance)"]
-    end
-    D --> R --> A --> V --> AC["ACHIEVED"]
-    R -.->|"blocked"| B["BLOCKED"] -.->|"retry"| R
-    A -.-> F1["FAILED"]
-    V -.-> F2["FAILED"]
+    D["DECLARED\nintent expressed"] --> R["RESOLVING\nprovision infra"]
+    R --> A["ACTIVE\nworkflows running"]
+    A --> V["VERIFYING\neval assurance"]
+    V --> AC["ACHIEVED"]
+    R -.->|blocked| B["BLOCKED"] -.->|retry| R
+    A -.-> F["FAILED"]
+    V -.-> F
 ```
 
-| Intent Type | Purpose | Infra Needs | Success Criteria |
-|------------|---------|-------------|------------------|
-| **AnalysisIntent** | Biomarker discovery / sample QC | Worker scaled, GCS data staged | Biological validity ≥ 60%, reproducibility ≥ 85% |
-| **TrainingIntent** | Fine-tune BioMistral / encoder | Vertex AI job, GPU allocated (max 4) | Job completion → auto-deploy |
-| **ValidationIntent** | Cross-omics concordance gate | Minimal | Hallucination detection ≥ 90% |
+| Intent | Purpose | Success criteria |
+|---|---|---|
+| **AnalysisIntent** | Biomarker discovery / sample QC | Biological validity ≥ 60%, reproducibility ≥ 85% |
+| **TrainingIntent** | Fine-tune BioMistral / expression encoder | Job completion → auto-deploy |
+| **ValidationIntent** | Cross-omics concordance gate | Hallucination detection ≥ 90%, adversarial robustness = 100% |
 
-The intent controller provisions infrastructure via **Pulumi Automation API**, triggers workflows, runs the **eval assurance loop**, and tears down resources on completion. See [docs/INTENT_WORKFLOW.md](docs/INTENT_WORKFLOW.md) for the full lifecycle documentation.
+The lifecycle is implemented twice during an in-flight migration: the Python reference (`intents/`) and the Go service that supersedes it (`intent-controller/`). Today **verify** terminates in `ACHIEVED` / `FAILED`. The CLUE vision closes ④ by routing a `FAILED` (or low-score) verdict back into ① — regenerate a harder cohort or retune the detector — rather than just halting. That feedback edge is designed, not yet built.
 
-## Advanced ML Integration
+### Skills, tools, evals
 
-Three enhancement layers extend the base pipeline for production use.
+| Layer | What |
+|---|---|
+| **Agent skills** (`agent_skills/`) | biomarker discovery, sample QC, cross-omics integration, literature grounding |
+| **MCP tools** (`mcp_server/`) | 11 tools: load/impute/select/classify/match + `express_intent` / `get_intent_status` |
+| **Evals** (`evals/`) | biological validity (≥0.60), reproducibility (≥0.85), hallucination detection (≥0.90), adversarial robustness (=1.0), benchmark comparison |
 
-```mermaid
-flowchart LR
-    subgraph SLM["Layer 1: SLM Fine-Tuning"]
-        BM[BioMistral-7B] --> QL["QLoRA 4-bit\nr=16, alpha=32"]
-        QL --> AD["Adapter\n~13M params"]
-    end
-    subgraph DSPy["Layer 2: DSPy Optimization"]
-        MOD[4 Modules] --> MET[Eval Metrics]
-        MET --> COMP["MIPROv2\nCompiler"]
-    end
-    subgraph GPU["Layer 3: GPU Training"]
-        ENC["Expression Encoder\nTransformer + CLS"]
-        DDP[DDP on 2xA100]
-        CU[cuML Classifier]
-    end
-```
+---
 
-**Layer 1 — SLM Fine-Tuning.** BioMistral-7B is fine-tuned with QLoRA (4-bit quantization, rank-16 adapters) on distilled biomarker explanations, producing a local model that replaces Claude API calls for feature interpretation at inference time.
+## Why synthetic data (and why not *only* synthetic)
 
-**Layer 2 — DSPy Optimization.** Four DSPy modules (biomarker discovery, feature interpretation, sample QC, regulatory report) are compiled with MIPROv2 to optimize prompts against the evaluation metrics automatically.
+| | Real challenge data | CLUE synthetic cohorts |
+|---|---|---|
+| Mislabel ground truth | Hidden (test set) | Known per-sample |
+| Corruption rate | Fixed, unknown | Any rate via `mislabel_fraction` |
+| Scale | 80 + 80 samples | 20 → 2,000+ |
+| Eval determinism | Stochastic (CV splits) | Byte-identical per seed |
 
-**Layer 3 — GPU Training.** A transformer-based expression encoder learns gene expression embeddings via contrastive learning on 2xA100 GPUs with DDP. cuML accelerates downstream classification.
+Synthetic data is the **measurement instrument**, not the deliverable. The intended workflow: develop and stress the detector on synthetic cohorts where you can measure it precisely, then validate on the real precisionFDA data as the gold standard, and report both. Real 80-sample data remains the final word on real-world performance.
 
-### Training Data Sources
+---
 
-| Source | Count | Method |
-|--------|-------|--------|
-| Ground Truth | ~50 | Platform constants (KNOWN_MSI_PATHWAY_MARKERS) |
-| Distilled | ~500 | Claude-generated, hallucination-filtered |
-| Negative | ~150 | Housekeeping genes, no pathway association |
+## Implementation status
 
-## Synthetic Data Generator
+| Capability | State |
+|---|---|
+| Synthetic cohort generation + ground truth | ✅ `core/synthetic.py` (tested) |
+| Controllable corruption rate / scale / seed | ✅ generator parameters |
+| COSMO detector (impute → match → predict → dual-validate) | ✅ `core/` |
+| Biological-validity / reproducibility / hallucination / robustness evals | ✅ `evals/` |
+| Intent lifecycle (observe-decide-act-verify) | ✅ Python `intents/`; Go `intent-controller/` (migration in progress) |
+| **Detection scored vs. synthetic ground truth (P/R/F1) across rates** | ⭕ **the closing edge — designed, not yet wired** |
+| **Verify → regenerate/retune feedback (loop ④→①)** | ⭕ **designed, not yet wired** |
+| Infrastructure as code | ✅ `infra-ts/` (TypeScript Pulumi); automated deploy currently disabled — see [DEPLOY.md](DEPLOY.md) |
 
-The platform includes a configurable synthetic data generator (`core/synthetic.py`) that produces realistic multi-omics datasets with controllable signal layers for testing and benchmarking.
+---
 
-```mermaid
-flowchart TD
-    BASE[Log-normal Base Expression] --> L1["Layer 1: MSI Signal\nPathway fold-changes 1.4-2.2x"]
-    BASE --> L2["Layer 2: Gender Signal\nY-chr high/zero"]
-    L1 & L2 --> L3["Layer 3: Cross-Omics\nShared latent factors"]
-    L3 --> L4["Layer 4: Mislabel Injection\nProteomics/RNA-Seq/Clinical swaps"]
-    L4 --> L5["Layer 5: Missingness\nMNAR + MAR batch dropout"]
-```
+## Quick start
 
-### Presets
-
-| Preset | Samples | Pro Genes | RNA Genes | Use Case |
-|--------|---------|-----------|-----------|----------|
-| `unit` | 20 | 100 | 150 | Unit tests (<1s) |
-| `integration` | 80 | 5,000 | 15,000 | Integration tests |
-| `benchmark` | 500 | 7,000 | 15,000 | Performance benchmarks |
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- Docker and Docker Compose (for PostgreSQL, Redis)
-
-### Install
+**Prerequisites:** Python 3.11+, Docker & Docker Compose (Postgres, Redis).
 
 ```bash
-# Clone and install
 git clone https://github.com/hossainpazooki/upstream-label-correction.git
 cd upstream-label-correction
-
-# All dependencies (ML, LLM, MCP, GCP, dev)
-pip install -e ".[all]"
-
-# Or minimal + specific extras
-pip install -e ".[ml,dev]"
+pip install -e ".[all]"          # or ".[ml,dev]" for a minimal install
 ```
 
-### Start Infrastructure
+Generate a cohort and run the detector — no GCP or external data required:
+
+```python
+from core.synthetic import SyntheticCohortGenerator
+from core.pipeline import COSMOInspiredPipeline   # see core/pipeline.py
+
+cohort = SyntheticCohortGenerator.integration().generate_cohort()
+truth  = cohort["ground_truth"]                   # the planted answer key
+# Run the COSMO pipeline over the cohort and compare its flags to `truth`.
+```
+
+Services (optional, for the full agentic/API path):
 
 ```bash
-docker-compose up -d
-# Starts: PostgreSQL 16 (5432), Redis (6379), Activity Worker (8081)
+docker-compose up -d                                              # Postgres, Redis
+uvicorn api.main:app --port 8000 --reload                         # REST API
+python -m mcp_server.server --transport sse --port 8080          # MCP server
 ```
 
-### Run Services
+Tests:
 
 ```bash
-# API server
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Activity worker (workflow step executor)
-uvicorn workflows.activity_service:app --host 0.0.0.0 --port 8081
-
-# MCP server (SSE transport)
-python -m mcp_server.server --transport sse --port 8080
+pytest                       # all
+pytest tests/test_core/test_synthetic.py   # the generator
+pytest tests/test_evals/                   # evals
 ```
 
-### Run Tests
+---
 
-```bash
-pytest                    # All tests
-pytest --cov              # With coverage
-pytest tests/test_evals/  # Specific module
-```
-
-## Project Structure
+## Repository layout
 
 ```
 upstream-label-correction/
-├── agent_skills/                  # High-level agent skills
-│   ├── biomarker_discovery.py     #   End-to-end biomarker panel identification
-│   ├── cross_omics_integration.py #   Cross-omics concordance analysis
-│   ├── literature_grounding.py    #   PubMed citation verification
-│   └── sample_qc.py              #   Sample mismatch detection
-├── api/                           # FastAPI REST service
-│   ├── main.py                    #   App entrypoint
-│   ├── middleware/                #   Audit logging, auth
-│   └── routes/                    #   Analysis, biomarker, workflow endpoints
-├── core/                          # Core ML engine
-│   ├── availability.py            #   Feature availability filtering
-│   ├── classifier.py              #   Ensemble MSI classifier
-│   ├── config.py                  #   Environment configuration
-│   ├── constants.py               #   Known MSI markers, pathways
-│   ├── cross_omics_matcher.py     #   Spearman + Hungarian matching
-│   ├── data_loader.py             #   Multi-omics TSV loader
-│   ├── database.py                #   PostgreSQL connection
-│   ├── experiment_tracker.py      #   Vertex AI experiment tracking
-│   ├── feature_selection.py       #   4-method consensus selection
-│   ├── feature_store.py           #   Feature caching layer
-│   ├── gpu_classifier.py          #   cuML GPU-accelerated classifier
-│   ├── imputation.py              #   MNAR-aware imputation
-│   ├── model_registry.py          #   Vertex AI model registry
-│   ├── models.py                  #   Pydantic data models
-│   ├── pipeline.py                #   COSMO-style orchestration
-│   ├── secrets.py                 #   Secret Manager integration
-│   ├── sharded_distance.py        #   Distributed distance matrices
-│   ├── storage.py                 #   GCS storage abstraction
-│   ├── synthetic.py               #   Synthetic data generator
-│   └── vertex_training.py         #   Vertex AI custom training
-├── dspy_modules/                  # DSPy prompt optimization
-│   ├── biomarker_discovery.py     #   Biomarker discovery module
-│   ├── compile.py                 #   MIPROv2 compiler
-│   ├── feature_interpret.py       #   Feature interpretation module
-│   ├── metrics.py                 #   Eval metrics for optimization
-│   ├── regulatory_report.py       #   Regulatory report module
-│   └── sample_qc.py              #   Sample QC module
-├── evals/                         # Evaluation framework
-│   ├── benchmark_comparison.py    #   Published signature comparison
-│   ├── biological_validity.py     #   MSI pathway coverage
-│   ├── hallucination_detection.py #   Citation verification
-│   ├── reproducibility.py         #   Run-to-run consistency
-│   ├── slm_eval.py                #   SLM-specific evaluation
-│   └── fixtures/                  #   Known MSI signatures
-├── mcp_server/                    # Model Context Protocol server
-│   ├── server.py                  #   MCP server entrypoint
-│   ├── schemas/                   #   Request/response schemas
-│   └── tools/                     #   11 tools (9 genomics + 2 intent lifecycle)
-├── prompts/                       # System prompts for agent orchestration
-├── scripts/                       # Training entrypoints
-│   ├── compile_dspy.py            #   DSPy compilation script
-│   ├── encoder_train_entrypoint.py#   Expression encoder training
-│   ├── slm_train_entrypoint.py    #   SLM fine-tuning script
-│   └── vertex_train_entrypoint.py #   Vertex AI training job
-├── intents/                       # Intent lifecycle layer
-│   ├── schemas.py                 #   IntentStatus enum, valid transitions
-│   ├── types.py                   #   AnalysisIntentSpec, TrainingIntentSpec, ValidationIntentSpec
-│   ├── models.py                  #   SQLModel tables (intents, intent_events)
-│   ├── controller.py              #   IntentController (observe-decide-act-verify)
-│   ├── infra_resolver.py          #   Maps intent needs → Pulumi Automation API
-│   ├── assurance.py               #   Wraps evals/ for success/failure determination
-│   └── service.py                 #   create_intent(), get_intent(), get_controller()
-├── infra/                         # Pulumi infrastructure (Python)
-│   ├── __main__.py                #   Entry point wiring all components
-│   ├── config.py                  #   Typed InfraConfig dataclass
-│   ├── components/                #   9 ComponentResources (networking, database, etc.)
-│   ├── policies/                  #   CrossGuard policy-as-code (8 compliance policies)
-│   ├── automation/                #   Automation API (ML-triggered deploys, ephemeral envs)
-│   ├── tests/                     #   pytest infrastructure unit tests
-│   └── Pulumi.{dev,staging,prod}.yaml  # Multi-environment stack configs
-├── terraform/                     # Legacy Terraform (migrated to Pulumi)
-│   ├── main.tf                    #   Root module
-│   ├── variables.tf / outputs.tf  #   Config and outputs
-│   └── modules/                   #   cloud_run, cloud_sql, gcs, vertex_ai, ...
-├── training/                      # ML training modules
-│   ├── data_builder.py            #   Training data generation
-│   ├── expression_encoder.py      #   Transformer gene encoder
-│   ├── finetune_slm.py            #   BioMistral QLoRA fine-tuning
-│   ├── explainer.py               #   Distillation data generation
-│   ├── gpu_configs.py             #   GPU training configurations
-│   └── train_encoder_ddp.py       #   DDP distributed training
-├── workflows/                     # GCP Workflows orchestration
-│   ├── activity_service.py        #   FastAPI activity worker service
-│   ├── local_runner.py            #   Local workflow runner (dev)
-│   ├── progress.py                #   Execution progress tracking
-│   ├── definitions/               #   GCP Workflow YAML definitions
-│   └── activities/                #   Workflow activity implementations
-├── tests/                         # Test suite
-├── data/                          #   raw/ and processed/
-├── docs/                          # Extended documentation
-├── docker-compose.yml             # Local infrastructure
-├── Dockerfile.ml                  # Python ML service container
-├── Dockerfile.trainer             # GPU training container (Vertex AI)
-├── web/Dockerfile                 # Next.js web app container
-├── web/Dockerfile.mcp             # MCP server container (TypeScript)
-├── intent-controller/Dockerfile   # Go intent controller container
-└── pyproject.toml                 # Dependencies and project config
+├── core/                 # ML engine: synthetic.py (generator), cross_omics_matcher.py,
+│                         #   classifier.py, imputation.py, feature_selection.py, pipeline.py
+├── evals/                # biological validity, reproducibility, hallucination,
+│                         #   adversarial robustness, benchmark comparison
+├── agent_skills/         # biomarker discovery, sample QC, cross-omics, literature grounding
+├── mcp_server/           # MCP tools (genomics + intent lifecycle)
+├── intents/              # Python intent lifecycle (being superseded by intent-controller/)
+├── intent-controller/    # Go intent + workflow engine (active migration target)
+├── web/                  # Next.js dashboard + API routes (TypeScript)
+├── dspy_modules/         # DSPy prompt optimization
+├── training/             # BioMistral QLoRA fine-tuning, expression encoder (GPU/DDP)
+├── infra-ts/             # TypeScript Pulumi infrastructure (GCP)
+├── api/  workflows/      # Python FastAPI + legacy orchestration (migrating to Go)
+├── tests/                # test suite
+└── docs/                 # extended documentation (+ docs/archive/ for retired docs)
 ```
 
-## Deployment
+> Note: the platform is mid-migration from a Python monolith to a polyglot split (Go intent-controller, TypeScript web/infra, Python ML core). Some Python modules (`api/`, `workflows/`, `intents/`) are slated for decommission once their Go/TS replacements reach parity — see [PULUMI_MIGRATION_PLAN.md](PULUMI_MIGRATION_PLAN.md).
 
-```mermaid
-flowchart TB
-    GH[GitHub Actions] --> CR1["Cloud Run\nAPI"]
-    GH --> CR2["Cloud Run\nMCP SSE"]
-    GH --> CR3["Cloud Run\nActivity Worker"]
-    CR1 & CR2 & CR3 --> SQL[("Cloud SQL\nPostgreSQL")]
-    CR1 & CR2 --> RED[("Memorystore\nRedis")]
-    CR1 --> WF["GCP Workflows\nOrchestration"]
-    WF --> CR3
-    CR1 --> VAI["Vertex AI\nTraining + Registry"]
-    VAI --> GCS[("GCS\nData + Models")]
-```
-
-All GCP features are optional and gated by environment variables. Local development works without any GCP configuration.
-
-### Infrastructure (Pulumi)
-
-Infrastructure is managed with [Pulumi](https://www.pulumi.com/) using the **TypeScript SDK**. The `infra-ts/` directory contains 8 reusable `ComponentResource` classes that map 1:1 to the GCP services above.
-
-```bash
-cd infra-ts
-npm ci
-pulumi stack select dev
-pulumi preview        # Review changes
-pulumi up             # Deploy
-```
-
-**Key features:**
-- **CrossGuard policies** — `infra-ts/policies/` enforces compliance guardrails (PITR, versioning, private networking, resource limits) on the stack
-- **Multi-environment** — per-stack config (`Pulumi.dev.yaml`)
-- **CI/CD** — GitHub Actions; note the automated GCP deploy is currently **disabled** pending the `infra-ts`/Pulumi workflow rewrite (see [DEPLOY.md](DEPLOY.md))
-
-See [DEPLOY.md](DEPLOY.md) for full deployment instructions. The legacy Terraform and Python-Pulumi stacks have been retired — see [docs/archive/](docs/archive/).
+---
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) — system design and component interactions
-- [Intent Workflow](docs/INTENT_WORKFLOW.md) — intent lifecycle, state machine, and infrastructure resolution
-- [Scientific Methodology](docs/SCIENTIFIC_METHODOLOGY.md) — statistical methods and biological rationale
-- [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible AI practices and eval design
-- [Deployment](DEPLOY.md) — infra-ts/Pulumi infrastructure, image build/push, and CI/CD
-- [Pulumi Migration Plan](PULUMI_MIGRATION_PLAN.md) — active Go + TypeScript migration plan
-- [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, and GPU training details
-- [Synthetic Data Strategy](docs/SYNTHETIC_DATA_STRATEGY.md) — data generation methodology
-- [Archived docs](docs/archive/) — superseded plans and deployment guides (historical reference)
+- [Scientific Methodology](docs/SCIENTIFIC_METHODOLOGY.md) — COSMO pipeline, biomarkers, statistical rationale
+- [Synthetic Data Strategy](docs/SYNTHETIC_DATA_STRATEGY.md) — signal layers, mislabel injection, fidelity criteria
+- [Architecture](docs/ARCHITECTURE.md) — Skill → Workflow → Eval design *(note: predates the Go/TS split)*
+- [Intent Workflow](docs/INTENT_WORKFLOW.md) — intent lifecycle and infrastructure resolution
+- [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible-AI practices and eval design
+- [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, GPU training
+- [Deployment](DEPLOY.md) · [Pulumi Migration Plan](PULUMI_MIGRATION_PLAN.md) · [Archived docs](docs/archive/)
 
 ## License
 
