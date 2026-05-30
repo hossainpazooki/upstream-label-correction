@@ -37,9 +37,9 @@ flowchart LR
 | ① **Generate** | Synthetic cohorts with planted MSI/gender signal and injected proteomics/RNA-Seq/clinical swaps; emits a ground-truth record of every swap | `core/synthetic.py` → `SyntheticCohortGenerator` | ✅ implemented |
 | ② **Verify fidelity** | Confirm the cohort is *detectable-by-construction* — biological signal is recoverable and reproducible, so results transfer to real data | `evals/biological_validity.py`, `evals/reproducibility.py` | 🔶 partial |
 | ③ **Measure** | Run the COSMO detector, compare flagged samples to the planted swaps, report precision/recall/F1 swept over corruption rate | `evals/mislabel_detection.py` → `MislabelDetectionEval` (detector: `core/cross_omics_matcher.py`) | ✅ implemented |
-| ④ **Improve** | Feed verification + measurement back to retune the detector or regenerate harder cohorts | intent lifecycle (`intents/`, `intent-controller/`) runs observe→decide→act→verify; the feedback-to-regenerate edge ⭕ | ⭕ designed |
+| ④ **Improve** | Feed the measured score back: tune the detector and regenerate harder cohorts up to the operating frontier | `clue/loop.py` → `CLUELoop` (eval-level); intent-lifecycle integration ⭕ | ✅ implemented |
 
-> **Honest status.** Stages **①–③ are implemented and tested** — including scoring detection against the generator's planted ground truth across a corruption-rate sweep (`evals/mislabel_detection.py`). The one edge that remains open is **④**: feeding a low score back to regenerate a harder cohort or retune the detector, so the loop *self-improves* rather than just reporting. See [Implementation status](#implementation-status). This README illustrates the CLUE architecture and is explicit about what is wired vs. designed; it does not claim a self-improving loop that isn't there yet.
+> **Honest status.** All four loop stages are **implemented and tested**: generate (`core/synthetic.py`), measure (`evals/mislabel_detection.py`), and improve/regenerate (`clue/loop.py`) — the last tunes the detector against planted ground truth and escalates corruption to the detector's operating frontier. Two honest caveats remain: "improve" tunes the detector's *decision threshold* (not full model retraining yet), and the eval-level loop is not yet wired into the platform **intent lifecycle**. See [Implementation status](#implementation-status). This README is explicit about what is wired vs. designed.
 
 ---
 
@@ -139,9 +139,27 @@ A clinical-only swap leaves both molecular matrices intact, so it is invisible t
 
 ---
 
-## ④ Improve — the agentic loop
+## ④ Improve — closing the loop
 
-CLUE runs as an **intent lifecycle** (inspired by intent-based networking, IETF RFC 9315): an agent declares a goal, the platform provisions what it needs, executes, and verifies against evals before declaring success.
+The loop closes here. `CLUELoop` (`clue/loop.py`) runs **generate → measure → improve → regenerate**, adapting on the measured score:
+
+- **Improve** — `tune_decision_threshold()` selects the detector's decision threshold (on per-sample mismatch frequency) that maximises F1 *against the planted ground truth*. The detector's effective configuration is chosen by measurement, not by hand.
+- **Regenerate harder** — when the tuned detector clears the F1 target, the loop raises the corruption rate and generates a fresh, harder cohort — probing regimes real data can't reach — until it finds the detector's **operating frontier**: the hardest rate it still clears.
+
+```python
+from clue.loop import CLUELoop
+
+result = CLUELoop(target_f1=0.80, start_fraction=0.05, max_fraction=0.40).run()
+for r in result.rounds:
+    print(f"rate={r.mislabel_fraction:.0%}  τ*={r.best_threshold}  F1={r.f1:.2f}  pass={r.passed}")
+print("operating frontier:", result.frontier_fraction)   # hardest rate the tuned detector cleared
+```
+
+Scope of "improve": the lever today is the detector's **decision threshold**, tuned against ground truth. Full model retraining (the classification path) is a deeper lever the loop's structure accommodates but does not yet drive — stated honestly rather than implied.
+
+### The agentic lifecycle
+
+The same observe→decide→act→verify discipline runs at the platform level as an **intent lifecycle** (inspired by intent-based networking, IETF RFC 9315): an agent declares a goal, the platform provisions what it needs, executes, and verifies against evals before declaring success.
 
 ```mermaid
 flowchart LR
@@ -160,7 +178,7 @@ flowchart LR
 | **TrainingIntent** | Fine-tune BioMistral / expression encoder | Job completion → auto-deploy |
 | **ValidationIntent** | Cross-omics concordance gate | Hallucination detection ≥ 90%, adversarial robustness = 100% |
 
-The lifecycle is implemented twice during an in-flight migration: the Python reference (`intents/`) and the Go service that supersedes it (`intent-controller/`). Today **verify** terminates in `ACHIEVED` / `FAILED`. The CLUE vision closes ④ by routing a `FAILED` (or low-score) verdict back into ① — regenerate a harder cohort or retune the detector — rather than just halting. That feedback edge is designed, not yet built.
+The lifecycle is implemented twice during an in-flight migration: the Python reference (`intents/`) and the Go service that supersedes it (`intent-controller/`). `CLUELoop` already closes the loop at the eval level; wiring its verdict into an intent's `VERIFYING` step — so the *platform-level* loop self-advances the same way — is the next integration.
 
 ### Skills, tools, evals
 
@@ -195,7 +213,8 @@ Synthetic data is the **measurement instrument**, not the deliverable. The inten
 | Biological-validity / reproducibility / hallucination / robustness evals | ✅ `evals/` |
 | Intent lifecycle (observe-decide-act-verify) | ✅ Python `intents/`; Go `intent-controller/` (migration in progress) |
 | Detection scored vs. synthetic ground truth (P/R/F1) across rates | ✅ `evals/mislabel_detection.py` (tested) |
-| **Verify → regenerate/retune feedback (loop ④→①)** | ⭕ **the remaining edge — designed, not yet wired** |
+| Closed loop: tune detector + regenerate harder to the operating frontier | ✅ `clue/loop.py` → `CLUELoop` (tested) |
+| Full model-retrain feedback + intent-lifecycle integration | ⭕ designed — the remaining depth |
 | Infrastructure as code | ✅ `infra-ts/` (TypeScript Pulumi); automated deploy currently disabled — see [DEPLOY.md](DEPLOY.md) |
 
 ---
@@ -245,8 +264,9 @@ pytest tests/test_evals/                   # evals
 upstream-label-correction/
 ├── core/                 # ML engine: synthetic.py (generator), cross_omics_matcher.py,
 │                         #   classifier.py, imputation.py, feature_selection.py, pipeline.py
-├── evals/                # biological validity, reproducibility, hallucination,
-│                         #   adversarial robustness, benchmark comparison
+├── evals/                # mislabel detection (vs. ground truth), biological validity,
+│                         #   reproducibility, hallucination, adversarial robustness, benchmark
+├── clue/                 # closed loop: generate → measure → improve → regenerate (CLUELoop)
 ├── agent_skills/         # biomarker discovery, sample QC, cross-omics, literature grounding
 ├── mcp_server/           # MCP tools (genomics + intent lifecycle)
 ├── intents/              # Python intent lifecycle (being superseded by intent-controller/)
