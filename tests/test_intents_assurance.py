@@ -85,7 +85,7 @@ def test_biological_validity_passes(assurance, analysis_intent):
 
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(assurance._run_biological_validity(analysis_intent, 0.60))
+        result = asyncio.run(assurance._run_biological_validity(analysis_intent, 0.60))
 
         assert result.passed is True
         assert result.score == 0.75

@@ -4,23 +4,24 @@
  */
 
 import { Queue, Worker, Job } from "bullmq";
-import IORedis from "ioredis";
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379/0";
 
-let connection: IORedis | null = null;
-
-function getConnection(): IORedis {
-  if (!connection) {
-    connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
-  }
-  return connection;
+function getConnectionOptions() {
+  const url = new URL(REDIS_URL);
+  return {
+    host: url.hostname,
+    port: parseInt(url.port || "6379", 10),
+    password: url.password || undefined,
+    db: parseInt(url.pathname.slice(1) || "0", 10),
+    maxRetriesPerRequest: null as null,
+  };
 }
 
 // --- Queue Definitions ---
 
 export const mlPipelineQueue = new Queue("ml-pipeline", {
-  connection: getConnection(),
+  connection: getConnectionOptions(),
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: "exponential", delay: 5000 },
@@ -30,7 +31,7 @@ export const mlPipelineQueue = new Queue("ml-pipeline", {
 });
 
 export const trainingQueue = new Queue("ml-training", {
-  connection: getConnection(),
+  connection: getConnectionOptions(),
   defaultJobOptions: {
     attempts: 1,
     removeOnComplete: { age: 604800 },

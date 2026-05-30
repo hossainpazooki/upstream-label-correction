@@ -1,4 +1,3 @@
-
 """Intent type specifications — frozen configuration for each intent type.
 
 Follows the @dataclass(frozen=True) pattern from infra/config.py.
