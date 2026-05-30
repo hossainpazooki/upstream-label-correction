@@ -39,7 +39,7 @@ flowchart LR
 | ③ **Measure** | Run the COSMO detector, compare flagged samples to the planted swaps, report precision/recall/F1 swept over corruption rate | `evals/mislabel_detection.py` → `MislabelDetectionEval` (detector: `core/cross_omics_matcher.py`) | ✅ implemented |
 | ④ **Improve** | Feed the measured score back: tune the detector and regenerate harder cohorts up to the operating frontier | `clue/loop.py` → `CLUELoop` (eval-level); intent-lifecycle integration ⭕ | ✅ implemented |
 
-> **Honest status.** All four loop stages are **implemented and tested**: generate (`core/synthetic.py`), measure (`evals/mislabel_detection.py`), and improve/regenerate (`clue/loop.py`) — the last tunes the detector against planted ground truth and escalates corruption to the detector's operating frontier. Two honest caveats remain: "improve" tunes the detector's *decision threshold* (not full model retraining yet), and the eval-level loop is not yet wired into the platform **intent lifecycle**. See [Implementation status](#implementation-status). This README is explicit about what is wired vs. designed.
+> **Honest status.** All four loop stages are **implemented and tested**: generate (`core/synthetic.py`), measure (`evals/mislabel_detection.py`), and improve/regenerate (`clue/loop.py`) — the last tunes the detector against planted ground truth and escalates corruption to the detector's operating frontier. The loop is also wired into the platform **intent lifecycle** — `mislabel_detection` is a registered assurance eval whose VERIFY step tunes the detector and gates on the tuned F1. One honest caveat remains: "improve" tunes the detector's *decision threshold*, not full model retraining yet. See [Implementation status](#implementation-status). This README is explicit about what is wired vs. designed.
 
 ---
 
@@ -178,7 +178,7 @@ flowchart LR
 | **TrainingIntent** | Fine-tune BioMistral / expression encoder | Job completion → auto-deploy |
 | **ValidationIntent** | Cross-omics concordance gate | Hallucination detection ≥ 90%, adversarial robustness = 100% |
 
-The lifecycle is implemented twice during an in-flight migration: the Python reference (`intents/`) and the Go service that supersedes it (`intent-controller/`). `CLUELoop` already closes the loop at the eval level; wiring its verdict into an intent's `VERIFYING` step — so the *platform-level* loop self-advances the same way — is the next integration.
+The lifecycle is implemented twice during an in-flight migration: the Python reference (`intents/`) and the Go service that supersedes it (`intent-controller/`). The loop is wired into VERIFY: `mislabel_detection` is a registered assurance eval (`intents/assurance.py`) that — when an intent lists it in `eval_criteria` — generates a cohort from the intent params, runs the improve step (threshold tuning), and gates the intent on the tuned F1. Porting this runner to the Go `AssuranceLoop` rides along with the migration.
 
 ### Skills, tools, evals
 
@@ -214,7 +214,8 @@ Synthetic data is the **measurement instrument**, not the deliverable. The inten
 | Intent lifecycle (observe-decide-act-verify) | ✅ Python `intents/`; Go `intent-controller/` (migration in progress) |
 | Detection scored vs. synthetic ground truth (P/R/F1) across rates | ✅ `evals/mislabel_detection.py` (tested) |
 | Closed loop: tune detector + regenerate harder to the operating frontier | ✅ `clue/loop.py` → `CLUELoop` (tested) |
-| Full model-retrain feedback + intent-lifecycle integration | ⭕ designed — the remaining depth |
+| Loop wired into intent lifecycle (VERIFY gates on tuned detection) | ✅ `intents/assurance.py` (tested; Go port pending) |
+| Full model-retrain feedback (vs. threshold tuning) | ⭕ designed — the remaining depth |
 | Infrastructure as code | ✅ `infra-ts/` (TypeScript Pulumi); automated deploy currently disabled — see [DEPLOY.md](DEPLOY.md) |
 
 ---

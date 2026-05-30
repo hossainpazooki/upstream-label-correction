@@ -27,6 +27,7 @@ class AssuranceLoop:
             "hallucination_detection": self._run_hallucination_detection,
             "adversarial_robustness": self._run_adversarial_robustness,
             "benchmark_comparison": self._run_benchmark_comparison,
+            "mislabel_detection": self._run_mislabel_detection,
         }
 
     async def evaluate(
@@ -185,6 +186,49 @@ class AssuranceLoop:
             score=result.score,
             threshold=threshold,
             details=result.details,
+        )
+
+    async def _run_mislabel_detection(
+        self,
+        intent: Intent,
+        threshold: float,
+    ) -> EvalResult:
+        """Gate the intent on label-error detection — the CLUE loop in VERIFY.
+
+        Generates a synthetic cohort from the intent's params, then runs the
+        **improve** step (``tune_decision_threshold``) so the lifecycle gates on
+        the detector's *tuned* F1 rather than its untuned default — closing the
+        CLUE loop at the platform level. Set ``params["tune_detector"] = False``
+        to gate on the untuned detector instead.
+
+        Relevant params (with defaults): ``mislabel_fraction`` (0.05),
+        ``n_samples`` (80), ``n_genes_proteomics`` (2000),
+        ``n_genes_rnaseq`` (4000), ``seed`` (42).
+        """
+        from clue.loop import tune_decision_threshold
+        from core.synthetic import SyntheticCohortGenerator
+        from evals.mislabel_detection import MislabelDetectionEval
+
+        params = intent.params
+        generator = SyntheticCohortGenerator(
+            n_samples=int(params.get("n_samples", 80)),
+            n_genes_proteomics=int(params.get("n_genes_proteomics", 2000)),
+            n_genes_rnaseq=int(params.get("n_genes_rnaseq", 4000)),
+            mislabel_fraction=float(params.get("mislabel_fraction", 0.05)),
+            seed=int(params.get("seed", 42)),
+        )
+        cohort = generator.generate_cohort()
+
+        if not params.get("tune_detector", True):
+            return MislabelDetectionEval().evaluate(cohort, threshold=threshold)
+
+        best_threshold, metrics = tune_decision_threshold(cohort)
+        return EvalResult(
+            name="mislabel_detection",
+            passed=metrics["f1"] >= threshold,
+            score=metrics["f1"],
+            threshold=threshold,
+            details={**metrics, "best_threshold": best_threshold, "tuned": True},
         )
 
     # ------------------------------------------------------------------
