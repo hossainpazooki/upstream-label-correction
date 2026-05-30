@@ -78,8 +78,27 @@ jobs:
       - name: Build MCP image
         run: docker build -f web/Dockerfile.mcp -t precision-genomics-mcp web/
 
-      # intent-controller build disabled: Go code has unresolved imports
-      # (internal/models package missing, referenced by 9 files).
-      # Re-enable after the Go models package is reconstructed.
-      # - name: Build Intent Controller image
-      #   run: docker build -f intent-controller/Dockerfile -t precision-genomics-intent-controller intent-controller/
+      - name: Build Intent Controller image
+        run: docker build -f intent-controller/Dockerfile -t precision-genomics-intent-controller intent-controller/
+
+  go-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: intent-controller
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: intent-controller/go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
