@@ -36,10 +36,10 @@ flowchart LR
 |---|---|---|---|
 | ① **Generate** | Synthetic cohorts with planted MSI/gender signal and injected proteomics/RNA-Seq/clinical swaps; emits a ground-truth record of every swap | `core/synthetic.py` → `SyntheticCohortGenerator` | ✅ implemented |
 | ② **Verify fidelity** | Confirm the cohort is *detectable-by-construction* — biological signal is recoverable and reproducible, so results transfer to real data | `evals/biological_validity.py`, `evals/reproducibility.py` | 🔶 partial |
-| ③ **Measure** | Run the COSMO detector, compare flagged samples to the planted swaps, report precision/recall/F1 swept over corruption rate | detector ✅ (`core/cross_omics_matcher.py`, `core/classifier.py`); scoring-vs-ground-truth ⭕ | 🔶 the closing edge |
+| ③ **Measure** | Run the COSMO detector, compare flagged samples to the planted swaps, report precision/recall/F1 swept over corruption rate | `evals/mislabel_detection.py` → `MislabelDetectionEval` (detector: `core/cross_omics_matcher.py`) | ✅ implemented |
 | ④ **Improve** | Feed verification + measurement back to retune the detector or regenerate harder cohorts | intent lifecycle (`intents/`, `intent-controller/`) runs observe→decide→act→verify; the feedback-to-regenerate edge ⭕ | ⭕ designed |
 
-> **Honest status.** The **generate** and **detect** halves are real and tested. The two edges that literally *close* the loop — (③) scoring detection against the generator's planted ground truth across corruption rates, and (④) feeding that score back to regenerate/retune — are the active build-out. See [Implementation status](#implementation-status). This README illustrates the CLUE architecture and is explicit about what is wired vs. designed; it does not claim a self-improving loop that isn't there yet.
+> **Honest status.** Stages **①–③ are implemented and tested** — including scoring detection against the generator's planted ground truth across a corruption-rate sweep (`evals/mislabel_detection.py`). The one edge that remains open is **④**: feeding a low score back to regenerate a harder cohort or retune the detector, so the loop *self-improves* rather than just reporting. See [Implementation status](#implementation-status). This README illustrates the CLUE architecture and is explicit about what is wired vs. designed; it does not claim a self-improving loop that isn't there yet.
 
 ---
 
@@ -124,7 +124,18 @@ flowchart LR
 
 **Fidelity verification (②)** keeps the synthetic cohort honest — a detector tuned on signal-free noise wouldn't transfer to real data. Today this is enforced by the biological-validity and reproducibility evals (the planted MSI pathway genes must be recoverable; the same seed must reproduce results). A dedicated "is this corruption detectable-by-construction" gate is part of the closing work.
 
-**Detection measurement (③)** is the loop's key edge. The pieces exist — the generator emits `swap_pairs`, the detector emits flags, and the classifier already computes precision/recall/F1 — but they are **not yet wired into a single eval** that scores flags against the *synthetic* ground truth and sweeps `mislabel_fraction`. That eval is the highest-value next step (tracked in the project tasks).
+**Detection measurement (③)** is wired. `MislabelDetectionEval` (`evals/mislabel_detection.py`) runs the cross-omics detector on a generated cohort, scores its flags against the planted `swap_pairs` as precision / recall / F1, and sweeps the corruption rate real data can't provide:
+
+```python
+from evals.mislabel_detection import MislabelDetectionEval
+
+# Score detection across corruption rates 10% → 40%
+for r in MislabelDetectionEval().sweep([0.10, 0.20, 0.30, 0.40], n_samples=80):
+    d = r.details
+    print(f"rate={d['mislabel_fraction']:.0%}  P={d['precision']:.2f} R={d['recall']:.2f} F1={d['f1']:.2f}")
+```
+
+A clinical-only swap leaves both molecular matrices intact, so it is invisible to the *distance* path — the eval scores it out of scope (and reports it separately) rather than penalising the detector for something that is the classification path's job.
 
 ---
 
@@ -157,7 +168,7 @@ The lifecycle is implemented twice during an in-flight migration: the Python ref
 |---|---|
 | **Agent skills** (`agent_skills/`) | biomarker discovery, sample QC, cross-omics integration, literature grounding |
 | **MCP tools** (`mcp_server/`) | 11 tools: load/impute/select/classify/match + `express_intent` / `get_intent_status` |
-| **Evals** (`evals/`) | biological validity (≥0.60), reproducibility (≥0.85), hallucination detection (≥0.90), adversarial robustness (=1.0), benchmark comparison |
+| **Evals** (`evals/`) | mislabel detection (P/R/F1 vs. planted ground truth), biological validity (≥0.60), reproducibility (≥0.85), hallucination detection (≥0.90), adversarial robustness (=1.0), benchmark comparison |
 
 ---
 
@@ -183,8 +194,8 @@ Synthetic data is the **measurement instrument**, not the deliverable. The inten
 | COSMO detector (impute → match → predict → dual-validate) | ✅ `core/` |
 | Biological-validity / reproducibility / hallucination / robustness evals | ✅ `evals/` |
 | Intent lifecycle (observe-decide-act-verify) | ✅ Python `intents/`; Go `intent-controller/` (migration in progress) |
-| **Detection scored vs. synthetic ground truth (P/R/F1) across rates** | ⭕ **the closing edge — designed, not yet wired** |
-| **Verify → regenerate/retune feedback (loop ④→①)** | ⭕ **designed, not yet wired** |
+| Detection scored vs. synthetic ground truth (P/R/F1) across rates | ✅ `evals/mislabel_detection.py` (tested) |
+| **Verify → regenerate/retune feedback (loop ④→①)** | ⭕ **the remaining edge — designed, not yet wired** |
 | Infrastructure as code | ✅ `infra-ts/` (TypeScript Pulumi); automated deploy currently disabled — see [DEPLOY.md](DEPLOY.md) |
 
 ---
