@@ -113,7 +113,7 @@ def test_biological_validity_fails(assurance):
 
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(assurance._run_biological_validity(intent, 0.60))
+        result = asyncio.run(assurance._run_biological_validity(intent, 0.60))
 
         assert result.passed is False
         assert result.score == 0.0
