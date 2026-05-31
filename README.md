@@ -291,6 +291,7 @@ upstream-label-correction/
 - [Synthetic Data Strategy](docs/SYNTHETIC_DATA_STRATEGY.md) — signal layers, mislabel injection, fidelity criteria
 - [Architecture](docs/ARCHITECTURE.md) — Skill → Workflow → Eval design *(note: predates the Go/TS split)*
 - [Intent Workflow](docs/INTENT_WORKFLOW.md) — intent lifecycle and infrastructure resolution
+- [Temporal-Equivalent Workflow Functionality](docs/TEMPORAL_FUNCTIONALITY.md) — retries + parallel fan-out recovered in the Go engine
 - [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible-AI practices and eval design
 - [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, GPU training
 - [Deployment](DEPLOY.md) · [Pulumi Migration Plan](PULUMI_MIGRATION_PLAN.md) · [Archived docs](docs/archive/)
