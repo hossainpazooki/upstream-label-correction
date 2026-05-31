@@ -210,9 +210,7 @@ def test_eval_error_returns_failed(assurance, analysis_intent):
 
     import asyncio
 
-    results = asyncio.run(
-        assurance.evaluate(analysis_intent, (("biological_validity", 0.60),))
-    )
+    results = asyncio.run(assurance.evaluate(analysis_intent, (("biological_validity", 0.60),)))
 
     assert results["biological_validity"].passed is False
     assert "error" in results["biological_validity"].details
