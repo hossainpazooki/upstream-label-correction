@@ -32,9 +32,32 @@ func TestRegistryDefaults(t *testing.T) {
 			if def.Phases[i].Name != name {
 				t.Errorf("%q phase[%d] = %q, want %q", typ, i, def.Phases[i].Name, name)
 			}
-			if def.Phases[i].Activity == nil {
-				t.Errorf("%q phase %q has a nil activity function", typ, name)
+			// A phase is executable via a single Activity or a fan-out group.
+			if def.Phases[i].Activity == nil && len(def.Phases[i].Parallel) == 0 {
+				t.Errorf("%q phase %q has no executable (nil Activity and empty Parallel)", typ, name)
 			}
+		}
+	}
+}
+
+// biomarker_discovery imputes and selects features per modality concurrently.
+func TestBiomarkerDiscoveryFansOutModalities(t *testing.T) {
+	e := NewEngine(nil, nil)
+	byName := map[string]Phase{}
+	for _, p := range e.registry["biomarker_discovery"].Phases {
+		byName[p.Name] = p
+	}
+
+	for _, name := range []string{"imputation", "feature_selection"} {
+		p, ok := byName[name]
+		if !ok {
+			t.Fatalf("missing %q phase", name)
+		}
+		if p.Activity != nil {
+			t.Errorf("%q should fan out, so Activity must be nil", name)
+		}
+		if len(p.Parallel) != len(biomarkerModalities) {
+			t.Errorf("%q has %d branches, want %d (one per modality)", name, len(p.Parallel), len(biomarkerModalities))
 		}
 	}
 }

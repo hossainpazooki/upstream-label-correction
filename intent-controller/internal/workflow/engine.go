@@ -15,10 +15,14 @@ import (
 // PhaseFunc executes one phase of a workflow and returns its result.
 type PhaseFunc func(ctx context.Context, dispatcher *activity.Dispatcher, params map[string]interface{}, prevResults map[string]interface{}) (map[string]interface{}, error)
 
-// Phase is a named step in a workflow definition.
+// Phase is a named step in a workflow definition. When Parallel is non-empty the
+// phase fans out: every PhaseFunc in Parallel runs concurrently (each with retry)
+// and their result maps are merged in branch order; Activity is ignored.
+// Otherwise Activity runs on its own (with retry).
 type Phase struct {
 	Name     string
 	Activity PhaseFunc
+	Parallel []PhaseFunc
 }
 
 // Definition describes a workflow type as a sequence of phases.
@@ -29,17 +33,19 @@ type Definition struct {
 
 // Engine manages workflow execution.
 type Engine struct {
-	workflows  *store.WorkflowRepo
-	dispatcher *activity.Dispatcher
-	registry   map[string]Definition
+	workflows   *store.WorkflowRepo
+	dispatcher  *activity.Dispatcher
+	registry    map[string]Definition
+	retryPolicy RetryPolicy
 }
 
 // NewEngine creates a new workflow engine with built-in workflow definitions.
 func NewEngine(workflows *store.WorkflowRepo, dispatcher *activity.Dispatcher) *Engine {
 	e := &Engine{
-		workflows:  workflows,
-		dispatcher: dispatcher,
-		registry:   map[string]Definition{},
+		workflows:   workflows,
+		dispatcher:  dispatcher,
+		registry:    map[string]Definition{},
+		retryPolicy: DefaultRetryPolicy(),
 	}
 	e.registerDefaults()
 	return e
@@ -50,8 +56,8 @@ func (e *Engine) registerDefaults() {
 		Type: "biomarker_discovery",
 		Phases: []Phase{
 			{Name: "data_loading", Activity: phaseLoadAndValidate},
-			{Name: "imputation", Activity: phaseImpute},
-			{Name: "feature_selection", Activity: phaseSelectFeatures},
+			{Name: "imputation", Parallel: fanOutModalities(imputeModality)},
+			{Name: "feature_selection", Parallel: fanOutModalities(selectFeaturesForModality)},
 			{Name: "integration", Activity: phaseIntegrateAndFilter},
 			{Name: "classification", Activity: phaseTrainAndEvaluate},
 			{Name: "interpretation", Activity: phaseInterpret},
@@ -110,6 +116,7 @@ func (e *Engine) Start(ctx context.Context, workflowType string, params map[stri
 		Status:          models.WorkflowStatusPending,
 		CurrentPhase:    "pending",
 		PhasesCompleted: []string{},
+		Params:          params,
 		StartedAt:       now,
 		Result:          map[string]interface{}{},
 	}
@@ -125,17 +132,45 @@ func (e *Engine) Start(ctx context.Context, workflowType string, params map[stri
 	return workflowID, nil
 }
 
-// execute runs all phases sequentially.
+// remainingPhases returns the phases whose Name is not present in completed,
+// preserving the original phase order. It is the resume primitive shared by a
+// fresh run (completed empty) and recovery (completed = phases already done).
+func remainingPhases(phases []Phase, completed []string) []Phase {
+	done := make(map[string]struct{}, len(completed))
+	for _, name := range completed {
+		done[name] = struct{}{}
+	}
+
+	remaining := make([]Phase, 0, len(phases))
+	for _, phase := range phases {
+		if _, ok := done[phase.Name]; ok {
+			continue
+		}
+		remaining = append(remaining, phase)
+	}
+	return remaining
+}
+
+// execute runs all phases of a fresh workflow sequentially.
 func (e *Engine) execute(ctx context.Context, workflowID string, def Definition, params map[string]interface{}) {
+	e.runPhases(ctx, workflowID, remainingPhases(def.Phases, nil), params)
+}
+
+// runPhases drives the given phases to completion, persisting progress after
+// each phase exactly as a fresh run does. It marks the workflow running on
+// entry, records each completed phase, and finally marks the workflow
+// completed (or failed on the first phase error). It is shared by execute and
+// Recover so resumed workflows persist identically to fresh ones.
+func (e *Engine) runPhases(ctx context.Context, workflowID string, phases []Phase, params map[string]interface{}) {
 	running := string(models.WorkflowStatusRunning)
 	e.workflows.UpdateProgress(ctx, workflowID, &running, nil, nil, nil, nil)
 
 	results := map[string]interface{}{}
 
-	for _, phase := range def.Phases {
+	for _, phase := range phases {
 		e.workflows.UpdateProgress(ctx, workflowID, nil, &phase.Name, nil, nil, nil)
 
-		result, err := phase.Activity(ctx, e.dispatcher, params, results)
+		result, err := e.runPhase(ctx, phase, params, results)
 		if err != nil {
 			slog.Error("workflow phase failed", "workflow_id", workflowID, "phase", phase.Name, "error", err)
 			failed := string(models.WorkflowStatusFailed)
@@ -153,6 +188,43 @@ func (e *Engine) execute(ctx context.Context, workflowID string, def Definition,
 	completed := string(models.WorkflowStatusCompleted)
 	e.workflows.UpdateProgress(ctx, workflowID, &completed, nil, nil, results, nil)
 	slog.Info("workflow completed", "workflow_id", workflowID)
+}
+
+// Recover sweeps for workflows left in the "running" state by a previous
+// process and resumes each one from its last completed phase. Workflows whose
+// type is no longer registered are marked failed. Each resume runs in its own
+// goroutine, mirroring Start, so Recover returns promptly without blocking
+// startup.
+func (e *Engine) Recover(ctx context.Context) error {
+	running := string(models.WorkflowStatusRunning)
+	wfs, err := e.workflows.List(ctx, running, 0, 0)
+	if err != nil {
+		return fmt.Errorf("list running workflows: %w", err)
+	}
+
+	for _, wf := range wfs {
+		def, ok := e.registry[wf.WorkflowType]
+		if !ok {
+			slog.Warn("cannot recover workflow: unknown type, marking failed",
+				"workflow_id", wf.WorkflowID, "type", wf.WorkflowType)
+			failed := string(models.WorkflowStatusFailed)
+			errMsg := fmt.Sprintf("unknown workflow type on recovery: %s", wf.WorkflowType)
+			e.workflows.UpdateProgress(ctx, wf.WorkflowID, &failed, nil, nil, nil, &errMsg)
+			continue
+		}
+
+		remaining := remainingPhases(def.Phases, wf.PhasesCompleted)
+		slog.Info("recovering running workflow",
+			"workflow_id", wf.WorkflowID, "type", wf.WorkflowType,
+			"completed", len(wf.PhasesCompleted), "remaining", len(remaining))
+
+		// Resume asynchronously, like Start. Use a background context so the
+		// resume is not tied to the recovery sweep's lifetime.
+		go e.runPhases(context.Background(), wf.WorkflowID, remaining, wf.Params)
+	}
+
+	slog.Info("workflow recovery sweep complete", "recovered", len(wfs))
+	return nil
 }
 
 // GetWorkflow returns a workflow execution by ID.

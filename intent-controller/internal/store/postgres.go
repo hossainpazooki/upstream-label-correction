@@ -74,6 +74,7 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 		status           TEXT NOT NULL DEFAULT 'pending',
 		current_phase    TEXT NOT NULL DEFAULT 'pending',
 		phases_completed JSONB NOT NULL DEFAULT '[]',
+		params           JSONB NOT NULL DEFAULT '{}',
 		started_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		completed_at     TIMESTAMPTZ,
 		result           JSONB NOT NULL DEFAULT '{}',
@@ -81,6 +82,9 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_workflow_executions_workflow_id ON workflow_executions(workflow_id);
 	CREATE INDEX IF NOT EXISTS idx_workflow_executions_status ON workflow_executions(status);
+
+	-- Migrate existing databases created before params was added.
+	ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS params JSONB NOT NULL DEFAULT '{}';
 	`
 	_, err := p.Pool.Exec(ctx, ddl)
 	if err != nil {

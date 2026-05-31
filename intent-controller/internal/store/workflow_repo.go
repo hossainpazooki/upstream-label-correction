@@ -23,14 +23,15 @@ func NewWorkflowRepo(db *Postgres) *WorkflowRepo {
 // Create inserts a new workflow execution record.
 func (r *WorkflowRepo) Create(ctx context.Context, wf *models.WorkflowExecution) error {
 	phasesJSON, _ := json.Marshal(wf.PhasesCompleted)
+	paramsJSON, _ := json.Marshal(wf.Params)
 	resultJSON, _ := json.Marshal(wf.Result)
 
 	err := r.db.Pool.QueryRow(ctx,
-		`INSERT INTO workflow_executions (workflow_id, workflow_type, status, current_phase, phases_completed, started_at, result)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO workflow_executions (workflow_id, workflow_type, status, current_phase, phases_completed, params, started_at, result)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING id`,
 		wf.WorkflowID, wf.WorkflowType, wf.Status,
-		wf.CurrentPhase, phasesJSON, wf.StartedAt, resultJSON,
+		wf.CurrentPhase, phasesJSON, paramsJSON, wf.StartedAt, resultJSON,
 	).Scan(&wf.ID)
 	if err != nil {
 		return fmt.Errorf("insert workflow: %w", err)
@@ -41,7 +42,7 @@ func (r *WorkflowRepo) Create(ctx context.Context, wf *models.WorkflowExecution)
 // GetByWorkflowID loads a workflow execution by its workflow_id.
 func (r *WorkflowRepo) GetByWorkflowID(ctx context.Context, workflowID string) (*models.WorkflowExecution, error) {
 	row := r.db.Pool.QueryRow(ctx,
-		`SELECT id, workflow_id, workflow_type, status, current_phase, phases_completed,
+		`SELECT id, workflow_id, workflow_type, status, current_phase, phases_completed, params,
 		        started_at, completed_at, result, error
 		 FROM workflow_executions WHERE workflow_id = $1`, workflowID)
 	return scanWorkflow(row)
@@ -69,7 +70,7 @@ func (r *WorkflowRepo) Update(ctx context.Context, wf *models.WorkflowExecution)
 
 // List returns workflow executions with optional status filter.
 func (r *WorkflowRepo) List(ctx context.Context, status string, limit, offset int) ([]*models.WorkflowExecution, error) {
-	query := `SELECT id, workflow_id, workflow_type, status, current_phase, phases_completed,
+	query := `SELECT id, workflow_id, workflow_type, status, current_phase, phases_completed, params,
 	                 started_at, completed_at, result, error
 	          FROM workflow_executions WHERE 1=1`
 	args := []interface{}{}
@@ -150,11 +151,11 @@ func (r *WorkflowRepo) UpdateProgress(ctx context.Context, workflowID string, st
 
 func scanWorkflow(row pgx.Row) (*models.WorkflowExecution, error) {
 	var wf models.WorkflowExecution
-	var phasesJSON, resultJSON []byte
+	var phasesJSON, paramsJSON, resultJSON []byte
 
 	err := row.Scan(
 		&wf.ID, &wf.WorkflowID, &wf.WorkflowType, &wf.Status,
-		&wf.CurrentPhase, &phasesJSON,
+		&wf.CurrentPhase, &phasesJSON, &paramsJSON,
 		&wf.StartedAt, &wf.CompletedAt, &resultJSON, &wf.Error,
 	)
 	if err != nil {
@@ -168,6 +169,7 @@ func scanWorkflow(row pgx.Row) (*models.WorkflowExecution, error) {
 	json.Unmarshal(phasesJSON, &phases)
 	wf.PhasesCompleted = phases
 
+	wf.Params = mustUnmarshalMap(paramsJSON)
 	wf.Result = mustUnmarshalMap(resultJSON)
 
 	return &wf, nil
@@ -175,11 +177,11 @@ func scanWorkflow(row pgx.Row) (*models.WorkflowExecution, error) {
 
 func scanWorkflowFromRows(rows pgx.Rows) (*models.WorkflowExecution, error) {
 	var wf models.WorkflowExecution
-	var phasesJSON, resultJSON []byte
+	var phasesJSON, paramsJSON, resultJSON []byte
 
 	err := rows.Scan(
 		&wf.ID, &wf.WorkflowID, &wf.WorkflowType, &wf.Status,
-		&wf.CurrentPhase, &phasesJSON,
+		&wf.CurrentPhase, &phasesJSON, &paramsJSON,
 		&wf.StartedAt, &wf.CompletedAt, &resultJSON, &wf.Error,
 	)
 	if err != nil {
@@ -190,6 +192,7 @@ func scanWorkflowFromRows(rows pgx.Rows) (*models.WorkflowExecution, error) {
 	json.Unmarshal(phasesJSON, &phases)
 	wf.PhasesCompleted = phases
 
+	wf.Params = mustUnmarshalMap(paramsJSON)
 	wf.Result = mustUnmarshalMap(resultJSON)
 
 	return &wf, nil

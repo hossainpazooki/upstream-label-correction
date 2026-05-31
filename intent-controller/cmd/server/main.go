@@ -51,6 +51,14 @@ func main() {
 	// Workflow engine
 	engine := workflow.NewEngine(workflowRepo, dispatcher)
 
+	// Durable execution: resume workflows left "running" by a previous process.
+	// Kicked off as the server starts; must not block startup.
+	go func() {
+		if err := engine.Recover(ctx); err != nil {
+			slog.Error("workflow recovery sweep failed", "error", err)
+		}
+	}()
+
 	// Intent manager
 	manager := intent.NewManager(intentRepo, workflowRepo, engine, dispatcher)
 

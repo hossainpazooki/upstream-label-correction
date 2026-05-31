@@ -23,6 +23,7 @@ type WorkflowExecution struct {
 	Status          WorkflowStatus         `json:"status"`
 	CurrentPhase    string                 `json:"current_phase"`
 	PhasesCompleted []string               `json:"phases_completed"`
+	Params          map[string]interface{} `json:"params"`
 	StartedAt       time.Time              `json:"started_at"`
 	CompletedAt     *time.Time             `json:"completed_at,omitempty"`
 	Result          map[string]interface{} `json:"result"`

@@ -144,9 +144,9 @@ func phaseCrossValidate(ctx context.Context, d *activity.Dispatcher, params, pre
 	classResult := extractStringSlice(prev, "classification_qc", "flagged_samples")
 	distResult := extractStringSlice(prev, "distance_matching", "flagged_samples")
 	return d.CallML(ctx, "/ml/pipeline", map[string]interface{}{
-		"action":                     "cross_validate_flags",
-		"flagged_by_classification":  classResult,
-		"flagged_by_distance":        distResult,
+		"action":                    "cross_validate_flags",
+		"flagged_by_classification": classResult,
+		"flagged_by_distance":       distResult,
 	})
 }
 
@@ -170,6 +170,59 @@ func phaseCompareAndDeploy(ctx context.Context, d *activity.Dispatcher, params, 
 		"action":  "compare_and_deploy",
 		"results": prev,
 	})
+}
+
+// --- biomarker-discovery fan-out (per-modality, run concurrently) ---
+
+// biomarkerModalities are the omics modalities the biomarker-discovery workflow
+// processes independently before integration. COSMO handles proteomics and
+// RNA-Seq on separate paths, so they fan out and run concurrently.
+var biomarkerModalities = []string{"proteomics", "rnaseq"}
+
+// imputeModality imputes a single modality, keyed by modality name so fan-out
+// branches merge into {proteomics: ..., rnaseq: ...} — the same shape the
+// sequential phaseImpute produced.
+func imputeModality(modality string) PhaseFunc {
+	return func(ctx context.Context, d *activity.Dispatcher, params, prev map[string]interface{}) (map[string]interface{}, error) {
+		dataset := stringParam(params, "dataset", "train")
+		result, err := d.CallML(ctx, "/ml/impute", map[string]interface{}{
+			"dataset":  dataset,
+			"modality": modality,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{modality: result}, nil
+	}
+}
+
+// selectFeaturesForModality selects features for a single modality, keyed by
+// modality name (see imputeModality for the merge contract).
+func selectFeaturesForModality(modality string) PhaseFunc {
+	return func(ctx context.Context, d *activity.Dispatcher, params, prev map[string]interface{}) (map[string]interface{}, error) {
+		dataset := stringParam(params, "dataset", "train")
+		target := stringParam(params, "target", "msi")
+		nTop := intParam(params, "n_top_features", 30)
+		result, err := d.CallML(ctx, "/ml/features", map[string]interface{}{
+			"dataset":        dataset,
+			"target":         target,
+			"modality":       modality,
+			"n_top_features": nTop,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{modality: result}, nil
+	}
+}
+
+// fanOutModalities builds one parallel branch per biomarker modality.
+func fanOutModalities(build func(string) PhaseFunc) []PhaseFunc {
+	branches := make([]PhaseFunc, 0, len(biomarkerModalities))
+	for _, modality := range biomarkerModalities {
+		branches = append(branches, build(modality))
+	}
+	return branches
 }
 
 // helpers
