@@ -89,7 +89,7 @@ def test_resolver_gpu_quota_within_limit():
 
     import asyncio
 
-    result = asyncio.get_event_loop().run_until_complete(resolver._check_gpu_quota(intent))
+    result = asyncio.run(resolver._check_gpu_quota(intent))
     assert result["status"] == "approved"
     assert result["num_gpus"] == 2
 
@@ -106,7 +106,7 @@ def test_resolver_gpu_quota_exceeds_limit():
 
     import asyncio
 
-    result = asyncio.get_event_loop().run_until_complete(resolver._check_gpu_quota(intent))
+    result = asyncio.run(resolver._check_gpu_quota(intent))
     assert result["status"] == "failed"
     assert "exceeds limit" in result["error"]
 

@@ -141,7 +141,7 @@ def test_evaluate_all_pass(assurance, analysis_intent):
 
     import asyncio
 
-    results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(analysis_intent, spec.eval_criteria))
+    results = asyncio.run(assurance.evaluate(analysis_intent, spec.eval_criteria))
 
     assert assurance.all_passed(results) is True
     assert results["biological_validity"].passed is True
@@ -165,7 +165,7 @@ def test_evaluate_partial_fail(assurance, analysis_intent):
 
     import asyncio
 
-    results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(analysis_intent, spec.eval_criteria))
+    results = asyncio.run(assurance.evaluate(analysis_intent, spec.eval_criteria))
 
     assert assurance.all_passed(results) is False
     assert results["reproducibility"].passed is False
@@ -189,7 +189,7 @@ def test_training_intent_no_evals(assurance):
 
     import asyncio
 
-    results = asyncio.get_event_loop().run_until_complete(assurance.evaluate(intent, spec.eval_criteria))
+    results = asyncio.run(assurance.evaluate(intent, spec.eval_criteria))
 
     assert results == {}
     assert assurance.all_passed(results) is True
@@ -210,7 +210,7 @@ def test_eval_error_returns_failed(assurance, analysis_intent):
 
     import asyncio
 
-    results = asyncio.get_event_loop().run_until_complete(
+    results = asyncio.run(
         assurance.evaluate(analysis_intent, (("biological_validity", 0.60),))
     )
 
