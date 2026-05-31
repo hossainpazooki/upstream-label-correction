@@ -254,10 +254,17 @@ class SyntheticCohortGenerator:
         if not overlapping:
             return
 
+        # Protect known signal genes so planted MSI fold-changes remain detectable.
+        # Cross-omics noise (exp(N(0,~1.25)) on log scale) would swamp the 2-4x
+        # fold changes for these genes in small cohorts.
+        _signal_genes = {g for genes in KNOWN_MSI_PATHWAY_MARKERS.values() for g in genes}
+
         n_latent = 5
         sample_profiles = self.rng.standard_normal((self.n_samples, n_latent))
 
         for gene in overlapping:
+            if gene in _signal_genes:
+                continue
             loading = self.rng.standard_normal(n_latent) * 0.5
             for row in range(self.n_samples):
                 shared = float(sample_profiles[row] @ loading)
@@ -273,6 +280,10 @@ class SyntheticCohortGenerator:
         rnaseq: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
         """Swap data between sample pairs to simulate mislabeling."""
+        empty_truth: dict = {"mislabeled_samples": [], "mislabel_type": {}, "swap_pairs": []}
+        if self.mislabel_fraction <= 0:
+            return clinical, proteomics, rnaseq, empty_truth
+
         n_to_swap = max(2, int(self.n_samples * self.mislabel_fraction))
         if n_to_swap % 2 != 0:
             n_to_swap += 1
