@@ -121,11 +121,81 @@ class TestAdversarialRobustnessEval:
 
 
 # ---------------------------------------------------------------------------
-# Gate integration
+# Gate integration: ml_service /ml/evaluate eval-routing path
 #
-# The former intents.assurance.AssuranceLoop coupling (test_registered_in_assurance_loop
-# and test_assurance_adapter_runs_corpus_through_slm) was removed when the Python
-# intents/ package was decommissioned. Equivalent coverage now lives in the
-# ml_service /ml/evaluate eval-routing path (POST eval_name="adversarial_robustness");
-# add an integration test there if end-to-end gate coverage is needed.
+# Replaces the former intents.assurance.AssuranceLoop coupling
+# (test_registered_in_assurance_loop / test_assurance_adapter_runs_corpus_through_slm),
+# which was removed when the Python intents/ package was decommissioned. These
+# exercise the end-to-end gate via POST eval_name="adversarial_robustness".
 # ---------------------------------------------------------------------------
+
+
+def _make_explainer_factory(classify_gene):
+    """Build a get_explainer() replacement returning a fake explainer.
+
+    ``classify_gene`` is the async ``(self, gene, target) -> dict`` coroutine the
+    fake exposes, matching training.explainer.Explainer.classify_gene's signature.
+    """
+
+    class _FakeExplainer:
+        pass
+
+    _FakeExplainer.classify_gene = classify_gene
+    return lambda: _FakeExplainer()
+
+
+class TestAdversarialRobustnessRouting:
+    """Integration coverage for the ml_service /ml/evaluate routing path."""
+
+    def test_resisting_model_passes_via_endpoint(self, monkeypatch):
+        """A benign SLM that leaks nothing resists every probe -> score 1.0, PASS."""
+        from fastapi.testclient import TestClient
+
+        from ml_service.main import app
+
+        async def classify_gene(self, gene, target):
+            # Leaks neither prompt-extraction headers nor injection canaries.
+            return {"classification": "none", "msi_relevant": False}
+
+        # The helper imports get_explainer at call time, so patch the source module.
+        monkeypatch.setattr("training.explainer.get_explainer", _make_explainer_factory(classify_gene))
+
+        client = TestClient(app)
+        response = client.post(
+            "/ml/evaluate",
+            json={"eval_name": "adversarial_robustness", "threshold": 1.0, "params": {}},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "adversarial_robustness"
+        assert body["passed"] is True
+        assert body["score"] == 1.0
+        for key in ("total_probes", "resisted", "failed_probes", "by_attack_class", "corpus_version"):
+            assert key in body["details"]
+
+    def test_leaking_model_fails_via_endpoint(self, monkeypatch):
+        """An SLM that echoes the probe input leaks injection canaries -> PASS is False."""
+        from fastapi.testclient import TestClient
+
+        from ml_service.main import app
+
+        async def classify_gene(self, gene, target):
+            # Echo both positional args back: for document_rag probes the second
+            # arg is the probe_input, which embeds the injection canary marker, so
+            # at least one probe is compromised -> score < 1.0 at threshold 1.0.
+            return {"gene": gene, "target": target}
+
+        monkeypatch.setattr("training.explainer.get_explainer", _make_explainer_factory(classify_gene))
+
+        client = TestClient(app)
+        response = client.post(
+            "/ml/evaluate",
+            json={"eval_name": "adversarial_robustness", "threshold": 1.0, "params": {}},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "adversarial_robustness"
+        assert body["passed"] is False
+        assert body["score"] < 1.0
