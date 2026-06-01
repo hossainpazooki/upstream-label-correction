@@ -56,6 +56,13 @@ class MatchCrossOmicsInput(BaseModel):
 class EvaluateModelInput(BaseModel):
     dataset: str = "test"
     target: str = "msi"
+    # Fields posted by the Go intent-controller (dispatcher.RunEval). When
+    # eval_name is set, /ml/evaluate routes to the matching assurance eval;
+    # when it is None or unknown, the legacy COSMO pipeline eval runs.
+    eval_name: str | None = None
+    threshold: float = 0.0
+    params: dict | None = None
+    intent_id: str | None = None
 
 
 class CheckAvailabilityInput(BaseModel):
@@ -143,9 +150,202 @@ async def match(params: MatchCrossOmicsInput) -> dict:
     return result if isinstance(result, dict) else {"status": "completed"}
 
 
+# ---------------------------------------------------------------------------
+# Eval routing — mirrors intents.assurance.AssuranceLoop._registry so that the
+# Go controller's RunEval (which posts {eval_name, threshold, params,
+# intent_id}) reaches the same evaluator the in-process assurance loop would.
+# Each helper reuses the existing evals/ + core/ implementations and returns a
+# JSON-serializable dict with at least: name, passed, score, threshold, details.
+# ---------------------------------------------------------------------------
+
+
+def _eval_result_to_dict(result) -> dict:
+    """Normalize an evals.EvalResult dataclass into a JSON-serializable dict."""
+    from dataclasses import asdict, is_dataclass
+
+    if is_dataclass(result):
+        return asdict(result)
+    if isinstance(result, dict):
+        return result
+    return {"result": str(result)}
+
+
+def _genes_from_params(params: dict) -> list[str]:
+    """Extract selected genes from posted params.
+
+    Mirrors AssuranceLoop._extract_genes but operates on the flat params dict
+    the Go controller posts (no in-process Intent / eval_results available).
+    """
+    if not params:
+        return []
+    if "genes" in params:
+        return params["genes"]
+    genes: list[str] = []
+    for wf_result in (params.get("eval_results") or {}).values():
+        if isinstance(wf_result, dict):
+            for biomarker in wf_result.get("biomarkers", []):
+                gene = biomarker.get("gene")
+                if gene and gene not in genes:
+                    genes.append(gene)
+    return genes
+
+
+def _eval_biological_validity(params: dict | None, threshold: float) -> dict:
+    """Score pathway coverage of selected genes (evals.BiologicalValidityEval)."""
+    from evals.biological_validity import BiologicalValidityEval
+
+    genes = _genes_from_params(params or {})
+    evaluator = BiologicalValidityEval()
+    return _eval_result_to_dict(evaluator.evaluate(genes, threshold=threshold))
+
+
+def _eval_reproducibility(params: dict | None, threshold: float) -> dict:
+    """Score feature-selection reproducibility across seeds (evals.ReproducibilityEval)."""
+    from core.pipeline import COSMOInspiredPipeline
+    from evals.reproducibility import ReproducibilityEval
+
+    params = params or {}
+    dataset = params.get("dataset", "train")
+
+    def pipeline_callable(seed: int) -> list[str]:
+        pipe = COSMOInspiredPipeline()
+        result = pipe.run(dataset=dataset)
+        stage3 = result.get("stages", {}).get("predict", {})
+        panel = stage3.get("feature_panel", {})
+        features = panel.get("features", [])
+        return [f.get("name", f.get("gene", "")) for f in features[:20]]
+
+    evaluator = ReproducibilityEval()
+    return _eval_result_to_dict(evaluator.evaluate(pipeline_callable, n_runs=5, top_k=20, threshold=threshold))
+
+
+def _eval_hallucination_detection(params: dict | None, threshold: float) -> dict:
+    """Verify cited PubMed IDs in interpretations (evals.HallucinationDetectionEval)."""
+    from evals.hallucination_detection import HallucinationDetectionEval
+
+    params = params or {}
+    interpretations = params.get("interpretations", [])
+    evaluator = HallucinationDetectionEval()
+    return _eval_result_to_dict(evaluator.evaluate(interpretations, threshold=threshold))
+
+
+async def _eval_adversarial_robustness(params: dict | None, threshold: float) -> dict:
+    """Probe the SLM with defensive adversarial inputs (evals.AdversarialRobustnessEval)."""
+    import json
+
+    from evals.adversarial_robustness import AdversarialRobustnessEval
+    from training.explainer import get_explainer
+
+    explainer = get_explainer()
+
+    async def model_callable(probe: dict) -> str:
+        if probe.get("channel") == "document_rag":
+            result = await explainer.classify_gene("BRAF", probe["probe_input"])
+        else:
+            result = await explainer.classify_gene(probe["probe_input"], "msi")
+        return json.dumps(result, default=str)
+
+    evaluator = AdversarialRobustnessEval()
+    return _eval_result_to_dict(await evaluator.evaluate(model_callable, threshold=threshold))
+
+
+def _eval_benchmark_comparison(params: dict | None, threshold: float) -> dict:
+    """Compare the agent panel to published signatures (evals.BenchmarkComparisonEval).
+
+    Mirrors AssuranceLoop._run_benchmark_comparison: the evaluator hardcodes
+    threshold=0.0, so the gate-provided threshold is honoured post-hoc against
+    the score (best Jaccard) without touching the evaluator's scoring logic.
+    """
+    from evals.benchmark_comparison import BenchmarkComparisonEval
+
+    genes = _genes_from_params(params or {})
+    evaluator = BenchmarkComparisonEval()
+    result = evaluator.evaluate(genes)
+    return {
+        "name": result.name,
+        "passed": result.score >= threshold,
+        "score": result.score,
+        "threshold": threshold,
+        "details": result.details,
+    }
+
+
+def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
+    """Gate on label-error detection — the CLUE loop in VERIFY.
+
+    Mirrors AssuranceLoop._run_mislabel_detection (parity gap #14.2): generates
+    a synthetic cohort from the posted params, then runs the **improve** step
+    (``tune_decision_threshold``) so the gate uses the detector's *tuned* F1
+    rather than its untuned default. Set ``params["tune_detector"] = False`` to
+    gate on the untuned detector instead.
+
+    Relevant params (with defaults): ``mislabel_fraction`` (0.05),
+    ``n_samples`` (80), ``n_genes_proteomics`` (2000),
+    ``n_genes_rnaseq`` (4000), ``seed`` (42).
+    """
+    from clue.loop import tune_decision_threshold
+    from core.synthetic import SyntheticCohortGenerator
+    from evals.mislabel_detection import MislabelDetectionEval
+
+    params = params or {}
+    generator = SyntheticCohortGenerator(
+        n_samples=int(params.get("n_samples", 80)),
+        n_genes_proteomics=int(params.get("n_genes_proteomics", 2000)),
+        n_genes_rnaseq=int(params.get("n_genes_rnaseq", 4000)),
+        mislabel_fraction=float(params.get("mislabel_fraction", 0.05)),
+        seed=int(params.get("seed", 42)),
+    )
+    cohort = generator.generate_cohort()
+
+    if not params.get("tune_detector", True):
+        result = MislabelDetectionEval().evaluate(cohort, threshold=threshold)
+        return {
+            "name": result.name,
+            "passed": result.passed,
+            "score": result.score,
+            "threshold": result.threshold,
+            "details": result.details,
+        }
+
+    best_threshold, metrics = tune_decision_threshold(cohort)
+    return {
+        "name": "mislabel_detection",
+        "passed": metrics["f1"] >= threshold,
+        "score": metrics["f1"],
+        "threshold": threshold,
+        "details": {**metrics, "best_threshold": best_threshold, "tuned": True},
+    }
+
+
+#: Synchronous eval runners keyed on eval_name. Async runners are dispatched
+#: separately in evaluate() because they must be awaited.
+_SYNC_EVAL_RUNNERS = {
+    "biological_validity": _eval_biological_validity,
+    "reproducibility": _eval_reproducibility,
+    "hallucination_detection": _eval_hallucination_detection,
+    "benchmark_comparison": _eval_benchmark_comparison,
+    "mislabel_detection": _eval_mislabel_detection,
+}
+
+
 @app.post("/ml/evaluate")
 async def evaluate(params: EvaluateModelInput) -> dict:
-    """Evaluate model on holdout data."""
+    """Evaluate a model / intent criterion.
+
+    When ``eval_name`` is set and known, route to the matching assurance eval
+    (mirroring intents.assurance.AssuranceLoop). When it is None or unknown,
+    preserve the legacy behavior: run the COSMO pipeline holdout eval.
+    """
+    eval_name = params.eval_name
+
+    if eval_name == "adversarial_robustness":
+        return await _eval_adversarial_robustness(params.params, params.threshold)
+
+    runner = _SYNC_EVAL_RUNNERS.get(eval_name) if eval_name else None
+    if runner is not None:
+        return runner(params.params, params.threshold)
+
+    # eval_name is None or unknown — legacy COSMO pipeline eval.
     from core.pipeline import COSMOInspiredPipeline
 
     pipe = COSMOInspiredPipeline()
