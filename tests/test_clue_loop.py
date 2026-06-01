@@ -18,7 +18,13 @@ from evals.mislabel_detection import (
 pytest.importorskip("scipy")
 pytest.importorskip("sklearn")
 
-from clue.loop import CLUELoop, LoopResult, RoundResult, tune_decision_threshold  # noqa: E402
+from clue.loop import (  # noqa: E402
+    CLUELoop,
+    LoopResult,
+    RoundResult,
+    build_classifier_xy,
+    tune_decision_threshold,
+)
 
 # Small but signal-bearing config; recall is 1.0 here so F1 is driven by precision.
 SMALL = dict(n_samples=30, n_genes_proteomics=150, n_genes_rnaseq=200)
@@ -84,3 +90,96 @@ def test_best_round_is_max_f1():
     result = CLUELoop(target_f1=0.8, start_fraction=0.10, max_rounds=3, seed=7, **SMALL).run()
     assert result.best_round is not None
     assert result.best_round.f1 == max(r.f1 for r in result.rounds)
+
+
+# ---------------------------------------------------------------------------
+# Retrain lever (improve_mode = "retrain"/"both"). These are kept separate from
+# the threshold-path tests above, which sit at the float/BLAS-sensitive
+# target_f1=0.8 boundary; the retrain assertions below test ranges, None-ness,
+# the no-leakage seed boundary, and same-machine determinism — never a
+# hardcoded F1 — so they don't inherit that platform fragility.
+# ---------------------------------------------------------------------------
+
+RETRAIN_KW = dict(target_f1=0.8, start_fraction=0.10, fraction_step=0.10, max_rounds=2, seed=7, **SMALL)
+
+
+def test_threshold_mode_is_byte_identical_to_default():
+    # The explicit default must reproduce the implicit default exactly: same
+    # f1, threshold, frontier, and no retrain fields populated.
+    implicit = CLUELoop(**RETRAIN_KW).run()
+    explicit = CLUELoop(improve_mode="threshold", **RETRAIN_KW).run()
+
+    assert [r.f1 for r in implicit.rounds] == [r.f1 for r in explicit.rounds]
+    assert [r.best_threshold for r in implicit.rounds] == [r.best_threshold for r in explicit.rounds]
+    assert implicit.frontier_fraction == explicit.frontier_fraction
+    for r in explicit.rounds:
+        assert r.improve_mode == "threshold"
+        assert r.retrain_f1 is None
+        assert r.train_seed is None
+
+
+def test_retrain_populates_held_out_fields():
+    result = CLUELoop(improve_mode="retrain", **RETRAIN_KW).run()
+    assert result.improve_mode == "retrain"
+    for r in result.rounds:
+        assert r.improve_mode == "retrain"
+        assert r.retrain_f1 is not None and 0.0 <= r.retrain_f1 <= 1.0
+        assert r.retrain_precision is not None and 0.0 <= r.retrain_precision <= 1.0
+        assert r.retrain_recall is not None and 0.0 <= r.retrain_recall <= 1.0
+        assert r.train_seed is not None
+
+
+def test_retrain_train_seed_is_disjoint_from_measure_seeds():
+    # The no-leakage guarantee: the train cohort's seed never coincides with any
+    # measure cohort's seed (self.seed + iteration for iteration in range).
+    seed, offset, max_rounds = 7, 1000, 2
+    result = CLUELoop(
+        improve_mode="retrain",
+        target_f1=0.8,
+        start_fraction=0.10,
+        fraction_step=0.10,
+        max_rounds=max_rounds,
+        seed=seed,
+        train_seed_offset=offset,
+        **SMALL,
+    ).run()
+    measure_seeds = {seed + i for i in range(max_rounds)}
+    for r in result.rounds:
+        assert r.train_seed == seed + offset + r.iteration
+        assert r.train_seed not in measure_seeds
+
+
+def test_retrain_is_deterministic_per_seed():
+    a = CLUELoop(improve_mode="retrain", **RETRAIN_KW).run()
+    b = CLUELoop(improve_mode="retrain", **RETRAIN_KW).run()
+    assert [r.retrain_f1 for r in a.rounds] == [r.retrain_f1 for r in b.rounds]
+    assert [r.train_seed for r in a.rounds] == [r.train_seed for r in b.rounds]
+
+
+def test_both_mode_reports_both_and_preserves_threshold_path():
+    both = CLUELoop(improve_mode="both", **RETRAIN_KW).run()
+    threshold_only = CLUELoop(improve_mode="threshold", **RETRAIN_KW).run()
+
+    # The distance-threshold path (which drives loop control) is unchanged by
+    # turning the retrain lever on alongside it.
+    assert [r.f1 for r in both.rounds] == [r.f1 for r in threshold_only.rounds]
+    assert [r.best_threshold for r in both.rounds] == [r.best_threshold for r in threshold_only.rounds]
+    assert both.frontier_fraction == threshold_only.frontier_fraction
+    for r in both.rounds:
+        assert r.retrain_f1 is not None
+
+
+def test_build_classifier_xy_shapes_and_labels():
+    cohort = _cohort(fraction=0.20, seed=7)
+    X, y_gender, y_msi, mismatch = build_classifier_xy(cohort)
+    n = len(cohort["clinical"])
+    assert X.shape[0] == n
+    assert y_gender.shape == (n,) and set(y_gender.tolist()) <= {0, 1}
+    assert y_msi.shape == (n,) and set(y_msi.tolist()) <= {0, 1}
+    assert mismatch.shape == (n,)
+    assert int(mismatch.sum()) == len(set(cohort["ground_truth"]["mislabeled_samples"]))
+
+
+def test_invalid_improve_mode_is_rejected():
+    with pytest.raises(ValueError, match="improve_mode"):
+        CLUELoop(improve_mode="bogus", **SMALL)

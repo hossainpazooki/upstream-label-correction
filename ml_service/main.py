@@ -275,19 +275,65 @@ def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
 
     Mirrors AssuranceLoop._run_mislabel_detection (parity gap #14.2): generates
     a synthetic cohort from the posted params, then runs the **improve** step
-    (``tune_decision_threshold``) so the gate uses the detector's *tuned* F1
-    rather than its untuned default. Set ``params["tune_detector"] = False`` to
-    gate on the untuned detector instead.
+    so the gate uses an *improved* detector rather than its untuned default. The
+    ``improve_mode`` param selects the lever:
+
+    * ``"threshold"`` (default) — tune the distance detector's decision
+      threshold (``tune_decision_threshold``).
+    * ``"retrain"`` — retrain the classification-path ensemble on a disjoint
+      train cohort and gate on its held-out F1 (no leakage).
+    * ``"both"`` — do both; gate on the held-out retrain F1, report threshold F1.
+
+    Set ``params["tune_detector"] = False`` to gate on the untuned detector.
 
     Relevant params (with defaults): ``mislabel_fraction`` (0.05),
     ``n_samples`` (80), ``n_genes_proteomics`` (2000),
-    ``n_genes_rnaseq`` (4000), ``seed`` (42).
+    ``n_genes_rnaseq`` (4000), ``seed`` (42), ``improve_mode`` ("threshold"),
+    ``classifier_random_state`` (42), ``train_seed_offset`` (1000).
     """
     from clue.loop import tune_decision_threshold
     from core.synthetic import SyntheticCohortGenerator
     from evals.mislabel_detection import MislabelDetectionEval
 
     params = params or {}
+    improve_mode = str(params.get("improve_mode", "threshold"))
+
+    if improve_mode in ("retrain", "both"):
+        # Retrain lever: route through CLUELoop for one round so the disjoint
+        # train/measure seeding and held-out scoring are reused verbatim.
+        from clue.loop import CLUELoop
+
+        loop = CLUELoop(
+            target_f1=threshold,
+            start_fraction=float(params.get("mislabel_fraction", 0.05)),
+            max_fraction=1.0,
+            max_rounds=1,
+            n_samples=int(params.get("n_samples", 80)),
+            n_genes_proteomics=int(params.get("n_genes_proteomics", 2000)),
+            n_genes_rnaseq=int(params.get("n_genes_rnaseq", 4000)),
+            seed=int(params.get("seed", 42)),
+            improve_mode=improve_mode,
+            classifier_random_state=int(params.get("classifier_random_state", 42)),
+            train_seed_offset=int(params.get("train_seed_offset", 1000)),
+        )
+        rnd = loop.run().rounds[0]
+        score = float(rnd.retrain_f1)  # held-out classifier F1 is the headline
+        return {
+            "name": "mislabel_detection",
+            "passed": score >= threshold,
+            "score": score,
+            "threshold": threshold,
+            "details": {
+                "improve_mode": improve_mode,
+                "retrain_f1": rnd.retrain_f1,
+                "retrain_precision": rnd.retrain_precision,
+                "retrain_recall": rnd.retrain_recall,
+                "train_seed": rnd.train_seed,
+                "threshold_f1": rnd.f1,
+                "best_threshold": rnd.best_threshold,
+            },
+        }
+
     generator = SyntheticCohortGenerator(
         n_samples=int(params.get("n_samples", 80)),
         n_genes_proteomics=int(params.get("n_genes_proteomics", 2000)),

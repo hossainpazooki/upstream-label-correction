@@ -143,7 +143,7 @@ A clinical-only swap leaves both molecular matrices intact, so it is invisible t
 
 The loop closes here. `CLUELoop` (`clue/loop.py`) runs **generate → measure → improve → regenerate**, adapting on the measured score:
 
-- **Improve** — `tune_decision_threshold()` selects the detector's decision threshold (on per-sample mismatch frequency) that maximises F1 *against the planted ground truth*. The detector's effective configuration is chosen by measurement, not by hand.
+- **Improve** — chosen by the `improve_mode` lever. `"threshold"` (default) selects the distance detector's decision threshold (on per-sample mismatch frequency) that maximises F1 *against the planted ground truth*. `"retrain"` goes deeper: it **retrains the classification-path ensemble** (`EnsembleMismatchClassifier`) from measured feedback. `"both"` runs both. Either way the detector's effective configuration is chosen by measurement, not by hand.
 - **Regenerate harder** — when the tuned detector clears the F1 target, the loop raises the corruption rate and generates a fresh, harder cohort — probing regimes real data can't reach — until it finds the detector's **operating frontier**: the hardest rate it still clears.
 
 ```python
@@ -155,7 +155,7 @@ for r in result.rounds:
 print("operating frontier:", result.frontier_fraction)   # hardest rate the tuned detector cleared
 ```
 
-Scope of "improve": the lever today is the detector's **decision threshold**, tuned against ground truth. Full model retraining (the classification path) is a deeper lever the loop's structure accommodates but does not yet drive — stated honestly rather than implied.
+Scope of "improve": two levers, selected by `improve_mode`. (1) the detector's **decision threshold**, tuned against ground truth; (2) **full model retraining** of the classification-path ensemble. The retrain lever observes the project's no-leakage rule: the classifier is fitted on a *separate* train cohort (same corruption rate, **disjoint seed**) and scored on the held-out measure cohort it never saw, so the reported `retrain_f1` is honest unseen-data performance — never the detector's own training set. Loop control (the operating-frontier search) stays keyed on the distance-threshold F1 in every mode; retrain metrics are reported alongside. Hard-example reweighting remains a further lever the structure admits but does not yet drive — stated honestly rather than implied.
 
 ### The agentic lifecycle
 
@@ -178,7 +178,7 @@ flowchart LR
 | **TrainingIntent** | Fine-tune BioMistral / expression encoder | Job completion → auto-deploy |
 | **ValidationIntent** | Cross-omics concordance gate | Hallucination detection ≥ 90%, adversarial robustness = 100% |
 
-The lifecycle now lives solely in the Go service (`intent-controller/`); the legacy Python reference (`intents/`) has been **decommissioned** after the Go service reached parity, and the controller runs multiple replicas safely via a cross-replica claim/lease (Postgres `FOR UPDATE SKIP LOCKED`). The loop is wired into VERIFY through the ML service: the controller's `RunEval` posts to `ml_service`'s `/ml/evaluate`, which routes `eval_name="mislabel_detection"` (one of six evals) to generate a cohort from the intent params, run the improve step (threshold tuning), and gate the intent on the tuned F1.
+The lifecycle now lives solely in the Go service (`intent-controller/`); the legacy Python reference (`intents/`) has been **decommissioned** after the Go service reached parity, and the controller runs multiple replicas safely via a cross-replica claim/lease (Postgres `FOR UPDATE SKIP LOCKED`). The loop is wired into VERIFY through the ML service: the controller's `RunEval` posts to `ml_service`'s `/ml/evaluate`, which routes `eval_name="mislabel_detection"` (one of six evals) to generate a cohort from the intent params, run the improve step (threshold tuning by default, or classifier retraining via `improve_mode`), and gate the intent on the resulting F1.
 
 ### Skills, tools, evals
 
@@ -215,7 +215,7 @@ Synthetic data is the **measurement instrument**, not the deliverable. The inten
 | Detection scored vs. synthetic ground truth (P/R/F1) across rates | ✅ `evals/mislabel_detection.py` (tested) |
 | Closed loop: tune detector + regenerate harder to the operating frontier | ✅ `clue/loop.py` → `CLUELoop` (tested) |
 | Loop wired into intent lifecycle (VERIFY gates on tuned detection) | ✅ via ml_service `/ml/evaluate` eval routing; Go `RunEval` → `mislabel_detection` |
-| Full model-retrain feedback (vs. threshold tuning) | ⭕ designed — the remaining depth |
+| Full model-retrain feedback (vs. threshold tuning) | ✅ `clue/loop.py` `improve_mode="retrain"/"both"` — held-out retrain on a disjoint cohort (tested) |
 | Infrastructure as code | ✅ `infra-ts/` (TypeScript Pulumi); automated deploy currently disabled — see [DEPLOY.md](DEPLOY.md) |
 
 ---
