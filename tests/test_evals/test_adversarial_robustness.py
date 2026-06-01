@@ -122,40 +122,10 @@ class TestAdversarialRobustnessEval:
 
 # ---------------------------------------------------------------------------
 # Gate integration
+#
+# The former intents.assurance.AssuranceLoop coupling (test_registered_in_assurance_loop
+# and test_assurance_adapter_runs_corpus_through_slm) was removed when the Python
+# intents/ package was decommissioned. Equivalent coverage now lives in the
+# ml_service /ml/evaluate eval-routing path (POST eval_name="adversarial_robustness");
+# add an integration test there if end-to-end gate coverage is needed.
 # ---------------------------------------------------------------------------
-
-
-def test_registered_in_assurance_loop():
-    """The evaluator is wired into the gate's runner registry."""
-    from intents.assurance import AssuranceLoop
-
-    assert "adversarial_robustness" in AssuranceLoop()._registry
-
-
-@pytest.mark.asyncio
-async def test_assurance_adapter_runs_corpus_through_slm(monkeypatch):
-    """The gate adapter routes the real probe corpus through an injected SLM."""
-    from intents.assurance import AssuranceLoop
-    from intents.models import Intent
-
-    class _MockExplainer:
-        async def classify_gene(self, gene, target):
-            return {
-                "pathway": "none_established",
-                "mechanism": "no leak",
-                "confidence": 0.5,
-                "msi_relevant": False,
-            }
-
-    monkeypatch.setattr(
-        "training.explainer.get_explainer",
-        lambda config=None: _MockExplainer(),
-    )
-
-    loop = AssuranceLoop()
-    intent = Intent(intent_id="val-test", intent_type="validation", params={})
-    result = await loop._run_adversarial_robustness(intent, 1.0)
-
-    assert result.name == "adversarial_robustness"
-    assert result.passed is True
-    assert result.score == 1.0
