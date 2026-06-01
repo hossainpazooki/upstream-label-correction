@@ -31,12 +31,19 @@ type Definition struct {
 	Phases []Phase
 }
 
+// recoverLeaseTTL bounds how long a claimed-but-unfinished workflow stays
+// leased. It is comfortably longer than any single phase so a worker that
+// crashes mid-resume has its claim reclaimed (orphan recovery) only after the
+// in-flight run would plausibly have completed, never while it is still live.
+const recoverLeaseTTL = 5 * time.Minute
+
 // Engine manages workflow execution.
 type Engine struct {
 	workflows   *store.WorkflowRepo
 	dispatcher  *activity.Dispatcher
 	registry    map[string]Definition
 	retryPolicy RetryPolicy
+	workerID    string
 }
 
 // NewEngine creates a new workflow engine with built-in workflow definitions.
@@ -46,9 +53,19 @@ func NewEngine(workflows *store.WorkflowRepo, dispatcher *activity.Dispatcher) *
 		dispatcher:  dispatcher,
 		registry:    map[string]Definition{},
 		retryPolicy: DefaultRetryPolicy(),
+		workerID:    "engine",
 	}
 	e.registerDefaults()
 	return e
+}
+
+// SetWorkerID sets the stable per-replica identity used to claim running
+// workflows during Recover. Call once at startup before Recover. Defaults to
+// "engine" so single-replica behaviour needs no configuration.
+func (e *Engine) SetWorkerID(workerID string) {
+	if workerID != "" {
+		e.workerID = workerID
+	}
 }
 
 func (e *Engine) registerDefaults() {
@@ -195,11 +212,21 @@ func (e *Engine) runPhases(ctx context.Context, workflowID string, phases []Phas
 // type is no longer registered are marked failed. Each resume runs in its own
 // goroutine, mirroring Start, so Recover returns promptly without blocking
 // startup.
+//
+// Recovery is cross-replica safe: instead of listing every running workflow it
+// CLAIMS a leased batch (store.WorkflowRepo.ClaimRunning), so two replicas
+// starting at once SPLIT the running workflows and never double-resume the same
+// one. The lease is dropped when the workflow finalizes (UpdateProgress on a
+// terminal status releases it). Workflows whose owner died mid-resume are
+// reclaimed once their lease expires (recoverLeaseTTL); since ClaimRunning only
+// returns lease-free or expired rows, simply running Recover again — at the
+// next replica startup — performs orphan recovery. A standalone periodic
+// orphan-reclaim sweep is left as a follow-up (see notes); it would just call
+// ClaimRunning on a timer.
 func (e *Engine) Recover(ctx context.Context) error {
-	running := string(models.WorkflowStatusRunning)
-	wfs, err := e.workflows.List(ctx, running, 0, 0)
+	wfs, err := e.workflows.ClaimRunning(ctx, e.workerID, recoverLeaseTTL.Seconds(), 0)
 	if err != nil {
-		return fmt.Errorf("list running workflows: %w", err)
+		return fmt.Errorf("claim running workflows: %w", err)
 	}
 
 	for _, wf := range wfs {

@@ -110,6 +110,68 @@ func (r *WorkflowRepo) List(ctx context.Context, status string, limit, offset in
 	return workflows, rows.Err()
 }
 
+// ClaimRunning atomically leases up to limit "running" workflows to workerID so
+// that, when multiple replicas start at once, the set of workflows to resume is
+// SPLIT between them rather than double-resumed.
+//
+// It mirrors IntentRepo.ClaimIntents: a FOR UPDATE SKIP LOCKED subselect over
+// running, lease-free rows feeds a single UPDATE that stamps locked_by +
+// lease_expires_at. Concurrent callers get DISJOINT sets; an expired lease
+// (ttlSeconds elapsed) is reclaimable, which doubles as the orphan-reclaim path
+// for a worker that died mid-resume. With one worker every running row is
+// returned, matching the previous List-based recovery sweep.
+//
+// The RETURNING list matches List() exactly so scanWorkflowFromRows applies and
+// the lease columns stay out of the model struct.
+func (r *WorkflowRepo) ClaimRunning(ctx context.Context, workerID string, ttlSeconds float64, limit int) ([]*models.WorkflowExecution, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	running := string(models.WorkflowStatusRunning)
+	const query = `
+		UPDATE workflow_executions SET locked_by = $1, lease_expires_at = now() + make_interval(secs => $2)
+		WHERE id IN (
+			SELECT id FROM workflow_executions
+			WHERE status = $3
+			  AND (lease_expires_at IS NULL OR lease_expires_at < now())
+			ORDER BY id
+			FOR UPDATE SKIP LOCKED
+			LIMIT $4
+		)
+		RETURNING id, workflow_id, workflow_type, status, current_phase, phases_completed, params,
+		          started_at, completed_at, result, error`
+
+	rows, err := r.db.Pool.Query(ctx, query, workerID, ttlSeconds, running, limit)
+	if err != nil {
+		return nil, fmt.Errorf("claim running workflows: %w", err)
+	}
+	defer rows.Close()
+
+	var workflows []*models.WorkflowExecution
+	for rows.Next() {
+		wf, err := scanWorkflowFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		workflows = append(workflows, wf)
+	}
+	return workflows, rows.Err()
+}
+
+// ReleaseWorkflow clears the lease on a workflow. It is called when a resumed
+// workflow reaches a terminal state so a stale lease is not left behind.
+// Safe to call on an unclaimed row.
+func (r *WorkflowRepo) ReleaseWorkflow(ctx context.Context, workflowID string) error {
+	_, err := r.db.Pool.Exec(ctx,
+		`UPDATE workflow_executions SET locked_by = NULL, lease_expires_at = NULL WHERE workflow_id = $1`,
+		workflowID,
+	)
+	if err != nil {
+		return fmt.Errorf("release workflow: %w", err)
+	}
+	return nil
+}
+
 // UpdateProgress updates specific progress fields on a workflow execution.
 func (r *WorkflowRepo) UpdateProgress(ctx context.Context, workflowID string, status *string, currentPhase *string, phaseCompleted *string, result map[string]interface{}, errMsg *string) error {
 	wf, err := r.GetByWorkflowID(ctx, workflowID)
@@ -141,12 +203,26 @@ func (r *WorkflowRepo) UpdateProgress(ctx context.Context, workflowID string, st
 	if errMsg != nil {
 		wf.Error = errMsg
 	}
-	if status != nil && (*status == "completed" || *status == "failed") {
+	terminal := false
+	if status != nil && (*status == "completed" || *status == "failed" || *status == "cancelled") {
 		t := time.Now().UTC()
 		wf.CompletedAt = &t
+		terminal = true
 	}
 
-	return r.Update(ctx, wf)
+	if err := r.Update(ctx, wf); err != nil {
+		return err
+	}
+
+	// On terminal status, drop any cross-replica lease so no stale claim is
+	// left behind. Best-effort: a leftover lease would only expire after its
+	// TTL, so a release failure is logged-by-caller, not fatal.
+	if terminal {
+		if err := r.ReleaseWorkflow(ctx, workflowID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func scanWorkflow(row pgx.Row) (*models.WorkflowExecution, error) {

@@ -98,6 +98,66 @@ func (r *IntentRepo) List(ctx context.Context, status, intentType string, limit,
 	return intents, rows.Err()
 }
 
+// ClaimIntents atomically leases up to limit non-terminal intents to workerID.
+//
+// It selects rows whose status is in statuses and whose lease is free (NULL or
+// expired), locks them with FOR UPDATE SKIP LOCKED so concurrent callers never
+// contend on the same rows, and stamps locked_by + lease_expires_at in a single
+// UPDATE. Because SKIP LOCKED hands each row to exactly one transaction, two
+// workers calling this concurrently receive DISJOINT row sets. The lease expires
+// after ttlSeconds so a worker that crashes mid-process has its claim reclaimed
+// by the next caller. With a single worker every eligible row is returned, so
+// behaviour is unchanged from the previous List-and-process loop.
+//
+// The RETURNING list matches List() exactly so the existing scanIntentFromRows
+// helper applies and the lease columns stay out of the model struct.
+func (r *IntentRepo) ClaimIntents(ctx context.Context, workerID string, statuses []string, ttlSeconds float64, limit int) ([]*models.Intent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	const query = `
+		UPDATE intents SET locked_by = $1, lease_expires_at = now() + make_interval(secs => $2)
+		WHERE id IN (
+			SELECT id FROM intents
+			WHERE status = ANY($3)
+			  AND (lease_expires_at IS NULL OR lease_expires_at < now())
+			ORDER BY id
+			FOR UPDATE SKIP LOCKED
+			LIMIT $4
+		)
+		RETURNING id, intent_id, intent_type, status, params, infra_state, workflow_ids, eval_results,
+		          created_at, resolved_at, activated_at, completed_at, error, requested_by`
+
+	rows, err := r.db.Pool.Query(ctx, query, workerID, ttlSeconds, statuses, limit)
+	if err != nil {
+		return nil, fmt.Errorf("claim intents: %w", err)
+	}
+	defer rows.Close()
+
+	var intents []*models.Intent
+	for rows.Next() {
+		intent, err := scanIntentFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		intents = append(intents, intent)
+	}
+	return intents, rows.Err()
+}
+
+// ReleaseIntent clears the lease on an intent so the next reconcile tick can
+// re-claim it (to advance the next FSM step). Safe to call on an unclaimed row.
+func (r *IntentRepo) ReleaseIntent(ctx context.Context, intentID string) error {
+	_, err := r.db.Pool.Exec(ctx,
+		`UPDATE intents SET locked_by = NULL, lease_expires_at = NULL WHERE intent_id = $1`,
+		intentID,
+	)
+	if err != nil {
+		return fmt.Errorf("release intent: %w", err)
+	}
+	return nil
+}
+
 // Update modifies an existing intent record.
 func (r *IntentRepo) Update(ctx context.Context, intent *models.Intent) error {
 	paramsJSON, _ := json.Marshal(intent.Params)

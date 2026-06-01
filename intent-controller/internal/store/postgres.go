@@ -85,6 +85,14 @@ func (p *Postgres) Migrate(ctx context.Context) error {
 
 	-- Migrate existing databases created before params was added.
 	ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS params JSONB NOT NULL DEFAULT '{}';
+
+	-- Cross-replica CLAIM/LEASE columns (durability step 3). Nullable so existing
+	-- rows default to NULL = unclaimed. A worker claims a row by stamping its id
+	-- and a lease expiry; the lease is reclaimable once it expires (owner crash).
+	ALTER TABLE intents ADD COLUMN IF NOT EXISTS locked_by TEXT;
+	ALTER TABLE intents ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
+	ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS locked_by TEXT;
+	ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
 	`
 	_, err := p.Pool.Exec(ctx, ddl)
 	if err != nil {
