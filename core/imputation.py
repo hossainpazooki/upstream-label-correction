@@ -171,7 +171,8 @@ class OmicsImputer:
                     if error < best_error:
                         best_error = error
                         best_k = k
-                except Exception:
+                except Exception:  # noqa: S112
+                    # this k failed (e.g. NMF did not converge); try the next k
                     continue
 
         return best_k

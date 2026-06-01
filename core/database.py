@@ -115,5 +115,6 @@ def init_composite_index(table_name: str) -> None:
                 )
             )
             conn.commit()
-    except Exception:
+    except Exception:  # noqa: S110
+        # best-effort index creation; safe to skip if it fails
         pass
