@@ -172,6 +172,28 @@ func (r *WorkflowRepo) ReleaseWorkflow(ctx context.Context, workflowID string) e
 	return nil
 }
 
+// RenewLeases extends the lease on every running workflow currently owned by
+// workerID, pushing lease_expires_at to now() + ttlSeconds in a single UPDATE.
+// It is the heartbeat counterpart to ClaimRunning: a live replica calls it on a
+// ticker (well under the lease TTL) so a workflow whose phases legitimately run
+// longer than the TTL keeps its lease and is never double-resumed by a periodic
+// orphan-reclaim sweep. Only rows with status = running are touched, so a
+// terminal workflow (whose lease UpdateProgress already cleared) is never
+// re-leased. Returns the number of rows renewed.
+func (r *WorkflowRepo) RenewLeases(ctx context.Context, workerID string, ttlSeconds float64) (int64, error) {
+	running := string(models.WorkflowStatusRunning)
+	tag, err := r.db.Pool.Exec(ctx,
+		`UPDATE workflow_executions
+		 SET lease_expires_at = now() + make_interval(secs => $1)
+		 WHERE locked_by = $2 AND status = $3`,
+		ttlSeconds, workerID, running,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("renew workflow leases: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // UpdateProgress updates specific progress fields on a workflow execution.
 func (r *WorkflowRepo) UpdateProgress(ctx context.Context, workflowID string, status *string, currentPhase *string, phaseCompleted *string, result map[string]interface{}, errMsg *string) error {
 	wf, err := r.GetByWorkflowID(ctx, workflowID)

@@ -219,10 +219,10 @@ func (e *Engine) runPhases(ctx context.Context, workflowID string, phases []Phas
 // one. The lease is dropped when the workflow finalizes (UpdateProgress on a
 // terminal status releases it). Workflows whose owner died mid-resume are
 // reclaimed once their lease expires (recoverLeaseTTL); since ClaimRunning only
-// returns lease-free or expired rows, simply running Recover again — at the
-// next replica startup — performs orphan recovery. A standalone periodic
-// orphan-reclaim sweep is left as a follow-up (see notes); it would just call
-// ClaimRunning on a timer.
+// returns lease-free or expired rows, simply running Recover again — either at
+// the next replica startup or on the periodic RecoverLoop ticker — performs
+// orphan recovery while leaving healthy in-flight workflows (whose live owner
+// keeps renewing the lease via HeartbeatLoop) untouched.
 func (e *Engine) Recover(ctx context.Context) error {
 	wfs, err := e.workflows.ClaimRunning(ctx, e.workerID, recoverLeaseTTL.Seconds(), 0)
 	if err != nil {
@@ -252,6 +252,69 @@ func (e *Engine) Recover(ctx context.Context) error {
 
 	slog.Info("workflow recovery sweep complete", "recovered", len(wfs))
 	return nil
+}
+
+// RecoverLoop runs Recover on a ticker until ctx is cancelled, reclaiming
+// genuinely-orphaned workflows (whose owner replica died) without waiting for a
+// replica restart. Because Recover claims only NULL/expired-lease rows, this
+// periodic sweep ignores healthy in-flight workflows whose live owner keeps
+// renewing its lease via HeartbeatLoop. It blocks until ctx is cancelled.
+func (e *Engine) RecoverLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	slog.Info("workflow recover loop started",
+		"interval", interval, "worker_id", e.workerID, "lease_ttl", recoverLeaseTTL)
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("workflow recover loop stopped")
+			return
+		case <-ticker.C:
+			if err := e.Recover(ctx); err != nil {
+				slog.Error("periodic workflow recovery sweep failed", "error", err)
+			}
+		}
+	}
+}
+
+// heartbeatInterval is how often a live replica renews the leases on the
+// workflows it owns. It is comfortably shorter than recoverLeaseTTL (a third of
+// it) so a workflow whose current phase outlives the TTL still keeps its lease
+// between renewals and is never reclaimed by RecoverLoop while its owner is
+// alive.
+const heartbeatInterval = recoverLeaseTTL / 3
+
+// HeartbeatLoop periodically renews the leases on all running workflows owned by
+// this replica so a long-running phase does not let the lease expire and get
+// double-resumed by an orphan-reclaim sweep. Renewal pushes lease_expires_at to
+// now()+recoverLeaseTTL; leases on terminal workflows are released by
+// UpdateProgress, so a finished workflow naturally drops out of the heartbeat.
+// It blocks until ctx is cancelled.
+func (e *Engine) HeartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	slog.Info("workflow lease heartbeat started",
+		"interval", heartbeatInterval, "worker_id", e.workerID, "lease_ttl", recoverLeaseTTL)
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("workflow lease heartbeat stopped")
+			return
+		case <-ticker.C:
+			n, err := e.workflows.RenewLeases(ctx, e.workerID, recoverLeaseTTL.Seconds())
+			if err != nil {
+				slog.Error("workflow lease heartbeat failed", "worker_id", e.workerID, "error", err)
+				continue
+			}
+			if n > 0 {
+				slog.Debug("workflow leases renewed", "worker_id", e.workerID, "count", n)
+			}
+		}
+	}
 }
 
 // GetWorkflow returns a workflow execution by ID.

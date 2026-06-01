@@ -71,6 +71,18 @@ func main() {
 		}
 	}()
 
+	// Periodic orphan-reclaim: re-run Recover on a ticker so a workflow whose
+	// owner replica died mid-run is reclaimed without waiting for a restart.
+	// ClaimRunning only returns NULL/expired-lease rows, so this sweep skips
+	// healthy in-flight workflows kept alive by the heartbeat below.
+	recoverInterval := envDuration("RECOVER_INTERVAL", 2*time.Minute)
+	go engine.RecoverLoop(ctx, recoverInterval)
+
+	// Lease heartbeat: a live replica renews the leases on its own running
+	// workflows on a ticker well under the lease TTL, so a phase that outlives
+	// the TTL never lets the lease expire and get double-resumed by the sweep.
+	go engine.HeartbeatLoop(ctx)
+
 	// Intent manager
 	manager := intent.NewManager(intentRepo, workflowRepo, engine, dispatcher)
 
