@@ -8,25 +8,42 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os/exec"
 	"time"
 
 	"github.com/precision-genomics/intent-controller/internal/models"
 )
 
-// Dispatcher sends activity requests to the Python ML service over HTTP.
-type Dispatcher struct {
-	mlURL  string
-	client *http.Client
+// Deployer performs the actual infrastructure deployment for a model image.
+// It is an injectable seam so DeployModel can be unit-tested without touching
+// real infrastructure: production wires in pulumiDeployer, tests wire in a fake.
+type Deployer interface {
+	Deploy(ctx context.Context, stackName, imageTag string) error
 }
 
-// NewDispatcher creates a new activity dispatcher.
+// Dispatcher sends activity requests to the Python ML service over HTTP.
+type Dispatcher struct {
+	mlURL    string
+	client   *http.Client
+	deployer Deployer
+}
+
+// NewDispatcher creates a new activity dispatcher with the default (real)
+// Pulumi-backed deployer.
 func NewDispatcher(mlServiceURL string) *Dispatcher {
 	return &Dispatcher{
 		mlURL: mlServiceURL,
 		client: &http.Client{
 			Timeout: 5 * time.Minute,
 		},
+		deployer: newPulumiDeployer(),
 	}
+}
+
+// SetDeployer overrides the deployment backend. It exists primarily to inject a
+// fake Deployer in tests; production code uses the default from NewDispatcher.
+func (d *Dispatcher) SetDeployer(dep Deployer) {
+	d.deployer = dep
 }
 
 // CallML sends a POST request to the ML service and returns the response.
@@ -196,9 +213,87 @@ func (d *Dispatcher) RunEval(ctx context.Context, evalName string, threshold flo
 	return result, nil
 }
 
-// DeployModel triggers a model deployment via the Pulumi Automation API.
+// DeployModel triggers a model deployment for the given stack and image tag.
+// It delegates to the configured Deployer (Pulumi CLI by default), propagating
+// any error rather than silently succeeding, and respects ctx cancellation.
 func (d *Dispatcher) DeployModel(ctx context.Context, stackName, imageTag string) error {
-	// In production, this would use the Pulumi Go SDK.
+	if d.deployer == nil {
+		return fmt.Errorf("deploy model: no deployer configured")
+	}
+
 	slog.Info("deploying model", "stack", stackName, "image_tag", imageTag)
+
+	if err := d.deployer.Deploy(ctx, stackName, imageTag); err != nil {
+		slog.Error("model deploy failed", "stack", stackName, "image_tag", imageTag, "error", err)
+		return fmt.Errorf("deploy model (stack=%s image_tag=%s): %w", stackName, imageTag, err)
+	}
+
+	slog.Info("model deploy succeeded", "stack", stackName, "image_tag", imageTag)
+	return nil
+}
+
+// pulumiDeployer is the production Deployer. It runs `pulumi up` against the
+// infra-ts project, selecting the requested stack and passing the image tag as
+// a stack config value. The exec is bound to the provided context (timeout and
+// cancellation) and stdout/stderr are captured for diagnostics.
+type pulumiDeployer struct {
+	// workDir is the Pulumi project directory (infra-ts) the CLI runs in.
+	workDir string
+	// timeout caps a single deploy if the caller's context has no deadline.
+	timeout time.Duration
+	// pulumiBin is the CLI binary name/path; overridable for tests.
+	pulumiBin string
+}
+
+func newPulumiDeployer() *pulumiDeployer {
+	return &pulumiDeployer{
+		workDir:   "infra-ts",
+		timeout:   15 * time.Minute,
+		pulumiBin: "pulumi",
+	}
+}
+
+func (p *pulumiDeployer) Deploy(ctx context.Context, stackName, imageTag string) error {
+	if stackName == "" {
+		return fmt.Errorf("stack name is required")
+	}
+
+	// Bail out early if the caller already cancelled.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Apply a default deploy ceiling only when the caller gave no deadline.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && p.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+	}
+
+	// Set the image tag as stack config, then deploy the selected stack
+	// non-interactively. --yes avoids prompts; --non-interactive is mandatory
+	// for an unattended controller.
+	args := [][]string{
+		{"config", "set", "modelImageTag", imageTag, "--stack", stackName, "--non-interactive"},
+		{"up", "--yes", "--stack", stackName, "--non-interactive"},
+	}
+
+	for _, a := range args {
+		var stdout, stderr bytes.Buffer
+		cmd := exec.CommandContext(ctx, p.pulumiBin, a...)
+		cmd.Dir = p.workDir
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			// Surface context cancellation/timeout distinctly from CLI failures.
+			if cerr := ctx.Err(); cerr != nil {
+				return fmt.Errorf("pulumi %s: %w", a[0], cerr)
+			}
+			return fmt.Errorf("pulumi %s failed: %w: %s", a[0], err, stderr.String())
+		}
+		slog.Debug("pulumi command completed", "command", a[0], "stack", stackName)
+	}
+
 	return nil
 }

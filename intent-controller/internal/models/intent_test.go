@@ -30,6 +30,9 @@ func TestIsValidTransition_Invalid(t *testing.T) {
 		{IntentStatusAchieved, IntentStatusActive},     // terminal
 		{IntentStatusFailed, IntentStatusResolving},    // terminal
 		{IntentStatusCancelled, IntentStatusResolving}, // terminal
+		{IntentStatusDeclared, IntentStatusFailed},     // declared must resolve or cancel
+		{IntentStatusBlocked, IntentStatusActive},      // blocked must re-resolve first
+		{IntentStatusBlocked, IntentStatusFailed},      // blocked may only resolve or cancel
 	}
 	for _, c := range invalid {
 		if IsValidTransition(c.from, c.to) {

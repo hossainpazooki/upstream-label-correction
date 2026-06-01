@@ -42,7 +42,6 @@ var TerminalStates = map[IntentStatus]bool{
 var validTransitions = map[IntentStatus]map[IntentStatus]bool{
 	IntentStatusDeclared: {
 		IntentStatusResolving: true,
-		IntentStatusFailed:    true,
 		IntentStatusCancelled: true,
 	},
 	IntentStatusResolving: {
@@ -53,8 +52,6 @@ var validTransitions = map[IntentStatus]map[IntentStatus]bool{
 	},
 	IntentStatusBlocked: {
 		IntentStatusResolving: true,
-		IntentStatusActive:    true,
-		IntentStatusFailed:    true,
 		IntentStatusCancelled: true,
 	},
 	IntentStatusActive: {
