@@ -184,8 +184,8 @@ The lifecycle now lives solely in the Go service (`intent-controller/`); the leg
 
 | Layer | What |
 |---|---|
-| **Agent skills** (`agent_skills/`) | biomarker discovery, sample QC, cross-omics integration, literature grounding |
-| **MCP tools** (`mcp_server/`) | 11 tools: load/impute/select/classify/match + `express_intent` / `get_intent_status` |
+| **Agent skills** (`web/src/lib/agent-skills/`) | biomarker discovery, sample QC, cross-omics integration, literature grounding (TypeScript) |
+| **MCP tools** (`web/src/mcp/`) | genomics + intent-lifecycle tools (TypeScript, MCP SDK) |
 | **Evals** (`evals/`) | mislabel detection (P/R/F1 vs. planted ground truth), biological validity (≥0.60), reproducibility (≥0.85), hallucination detection (≥0.90), adversarial robustness (=1.0), benchmark comparison |
 
 ---
@@ -245,8 +245,8 @@ Services (optional, for the full agentic/API path):
 
 ```bash
 docker-compose up -d                                              # Postgres, Redis
-uvicorn api.main:app --port 8000 --reload                         # REST API
-python -m mcp_server.server --transport sse --port 8080          # MCP server
+uvicorn ml_service.main:app --port 8000 --reload                 # ML service (FastAPI)
+cd web && npx tsx src/mcp/server.ts                              # MCP server (TypeScript)
 ```
 
 Tests:
@@ -268,8 +268,6 @@ upstream-label-correction/
 ├── evals/                # mislabel detection (vs. ground truth), biological validity,
 │                         #   reproducibility, hallucination, adversarial robustness, benchmark
 ├── clue/                 # closed loop: generate → measure → improve → regenerate (CLUELoop)
-├── agent_skills/         # biomarker discovery, sample QC, cross-omics, literature grounding
-├── mcp_server/           # MCP tools (genomics + intent lifecycle)
 ├── intent-controller/    # Go intent lifecycle + workflow engine (multi-replica via DB lease)
 ├── ml_service/           # FastAPI ML service: /ml/* endpoints incl. /ml/evaluate eval routing
 ├── web/                  # Next.js dashboard + API routes (TypeScript)
