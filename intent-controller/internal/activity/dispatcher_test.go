@@ -3,6 +3,8 @@ package activity
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -113,6 +115,36 @@ func TestPulumiDeployer_RejectsEmptyStack(t *testing.T) {
 	p := newPulumiDeployer()
 	if err := p.Deploy(context.Background(), "", "latest"); err == nil {
 		t.Fatal("expected error for empty stack name")
+	}
+}
+
+func TestNewPulumiDeployer_DefaultWorkDir(t *testing.T) {
+	// With no override, workDir defaults to an absolute "infra-ts".
+	t.Setenv("PULUMI_WORKDIR", "")
+
+	p := newPulumiDeployer()
+	want, err := filepath.Abs("infra-ts")
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	if p.workDir != want {
+		t.Errorf("workDir = %q, want %q", p.workDir, want)
+	}
+}
+
+func TestNewPulumiDeployer_WorkDirOverride(t *testing.T) {
+	// Setting PULUMI_WORKDIR overrides the default and is resolved to an
+	// absolute path.
+	override := filepath.Join(os.TempDir(), "custom-infra")
+	t.Setenv("PULUMI_WORKDIR", override)
+
+	p := newPulumiDeployer()
+	want, err := filepath.Abs(override)
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	if p.workDir != want {
+		t.Errorf("workDir = %q, want %q", p.workDir, want)
 	}
 }
 

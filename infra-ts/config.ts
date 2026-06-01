@@ -13,6 +13,7 @@ export interface InfraConfig {
   dbPassword: pulumi.Output<string>;
   anthropicApiKey: pulumi.Output<string>;
   experimentName: string;
+  modelImageTag: string;
 }
 
 export function loadConfig(): InfraConfig {
@@ -27,5 +28,6 @@ export function loadConfig(): InfraConfig {
     dbPassword: cfg.requireSecret("db_password"),
     anthropicApiKey: cfg.requireSecret("anthropic_api_key"),
     experimentName: cfg.get("experiment_name") ?? "precision-genomics",
+    modelImageTag: cfg.get("modelImageTag") ?? "latest",
   };
 }

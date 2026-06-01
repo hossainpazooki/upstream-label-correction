@@ -8,7 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/precision-genomics/intent-controller/internal/models"
@@ -247,10 +249,25 @@ type pulumiDeployer struct {
 
 func newPulumiDeployer() *pulumiDeployer {
 	return &pulumiDeployer{
-		workDir:   "infra-ts",
+		workDir:   pulumiWorkDir(),
 		timeout:   15 * time.Minute,
 		pulumiBin: "pulumi",
 	}
+}
+
+// pulumiWorkDir resolves the Pulumi project directory. It honors the
+// PULUMI_WORKDIR env var (defaulting to "infra-ts") and resolves it to an
+// absolute path so the controller binary can run from any directory. If the
+// path cannot be made absolute, the configured value is used as-is.
+func pulumiWorkDir() string {
+	dir := os.Getenv("PULUMI_WORKDIR")
+	if dir == "" {
+		dir = "infra-ts"
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
 }
 
 func (p *pulumiDeployer) Deploy(ctx context.Context, stackName, imageTag string) error {

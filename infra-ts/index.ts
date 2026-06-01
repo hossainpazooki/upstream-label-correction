@@ -101,7 +101,7 @@ const webService = new CloudRunService("precision-genomics-web", {
 const mlService = new CloudRunService("precision-genomics-ml", {
   projectId: cfg.projectId,
   region: cfg.region,
-  image: registry.registryUrl.apply((url) => `${url}/ml:latest`),
+  image: registry.registryUrl.apply((url) => `${url}/ml:${cfg.modelImageTag}`),
   port: 8000,
   cpu: "4",
   memory: "8Gi",
