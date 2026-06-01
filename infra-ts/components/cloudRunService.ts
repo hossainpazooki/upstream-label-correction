@@ -62,7 +62,7 @@ export class CloudRunService extends pulumi.ComponentResource {
         containers: [
           {
             image: args.image,
-            ports: [{ containerPort: args.port }],
+            ports: { containerPort: args.port },
             envs: envEntries,
             resources: {
               limits: { cpu: args.cpu, memory: args.memory },

@@ -144,12 +144,12 @@ new VertexAI("vertex-ai", {
 });
 
 // --- Exports ---
-pulumi.export("webUrl", webService.url);
-pulumi.export("mlServiceUrl", mlService.url);
-pulumi.export("mcpUrl", mcpService.url);
-pulumi.export("cloudSqlConnectionName", database.connectionName);
-pulumi.export("cloudSqlPrivateIp", database.privateIp);
-pulumi.export("redisHost", cache.host);
-pulumi.export("gcsDataBucket", gcs.dataBucketName);
-pulumi.export("gcsModelBucket", gcs.modelBucketName);
-pulumi.export("registryUrl", registry.registryUrl);
+export const webUrl = webService.url;
+export const mlServiceUrl = mlService.url;
+export const mcpUrl = mcpService.url;
+export const cloudSqlConnectionName = database.connectionName;
+export const cloudSqlPrivateIp = database.privateIp;
+export const redisHost = cache.host;
+export const gcsDataBucket = gcs.dataBucketName;
+export const gcsModelBucket = gcs.modelBucketName;
+export const registryUrl = registry.registryUrl;
