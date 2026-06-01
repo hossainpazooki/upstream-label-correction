@@ -69,8 +69,9 @@ def save_optimized_module(module, name: str, storage: StorageBackend) -> str:
     timestamp = datetime.datetime.now(tz=datetime.UTC).strftime("%Y%m%dT%H%M%S")
     path = f"dspy_modules/{name}/{timestamp}.json"
 
-    module.save(f"/tmp/dspy_{name}_{timestamp}")
-    data = Path(f"/tmp/dspy_{name}_{timestamp}").read_bytes()
+    # /tmp is ephemeral container scratch (Cloud Run / Vertex), not multi-tenant shared state.
+    module.save(f"/tmp/dspy_{name}_{timestamp}")  # noqa: S108
+    data = Path(f"/tmp/dspy_{name}_{timestamp}").read_bytes()  # noqa: S108
     storage.write_bytes(path, data)
     logger.info("Saved optimized module %s to %s", name, path)
     return path

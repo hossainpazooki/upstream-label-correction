@@ -37,7 +37,8 @@ def split_dataset(
     tuple[list, list, list]
         (train, val, test) splits.
     """
-    rng = random.Random(seed)
+    # Deterministic seeded data-split shuffle for reproducibility, not crypto.
+    rng = random.Random(seed)  # noqa: S311
     shuffled = list(examples)
     rng.shuffle(shuffled)
 

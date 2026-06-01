@@ -40,8 +40,8 @@ jobs:
         run: pip install ruff
 
       - name: Run SAST rules
-        # SAST over the dirs from the original list that still exist (core, evals).
-        run: ruff check --select S core evals
+        # SAST over the full source set; intentional findings are noqa'd with a reason.
+        run: ruff check --select S core clue evals training dspy_modules ml_service scripts
 
   secret-detection:
     runs-on: ubuntu-latest

@@ -81,7 +81,7 @@ def tune_decision_threshold(
         if best_metrics is None or metrics["f1"] >= best_metrics["f1"]:
             best_threshold, best_metrics = tau, metrics
 
-    assert best_metrics is not None  # candidates is non-empty
+    assert best_metrics is not None  # noqa: S101  invariant check (candidates is non-empty), not security-sensitive
     return best_threshold, best_metrics
 
 

@@ -38,7 +38,8 @@ def main() -> None:
     backend = GCSStorageBackend(bucket_name)
     data_bytes = backend.read_bytes(blob_path)
 
-    local_data_path = "/tmp/slm_training_data.json"
+    # /tmp is the Vertex AI job scratch dir (ephemeral container), not shared state.
+    local_data_path = "/tmp/slm_training_data.json"  # noqa: S108
     with open(local_data_path, "wb") as f:
         f.write(data_bytes)
 
@@ -52,7 +53,7 @@ def main() -> None:
     # Run training
     from training.finetune_slm import load_quantized_model, prepare_datasets, train
 
-    output_dir = os.environ.get("AIP_MODEL_DIR", "/tmp/slm_output")
+    output_dir = os.environ.get("AIP_MODEL_DIR", "/tmp/slm_output")  # noqa: S108  Vertex AI job scratch dir (ephemeral container)
     model, tokenizer = load_quantized_model(config)
     train_ds, val_ds, test_ds = prepare_datasets(local_data_path)
     metrics = train(model, tokenizer, train_ds, val_ds, config, output_dir)
