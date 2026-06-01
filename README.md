@@ -37,7 +37,7 @@ flowchart LR
 | ① **Generate** | Synthetic cohorts with planted MSI/gender signal and injected proteomics/RNA-Seq/clinical swaps; emits a ground-truth record of every swap | `core/synthetic.py` → `SyntheticCohortGenerator` | ✅ implemented |
 | ② **Verify fidelity** | Confirm the cohort is *detectable-by-construction* — biological signal is recoverable and reproducible, so results transfer to real data | `evals/biological_validity.py`, `evals/reproducibility.py` | 🔶 partial |
 | ③ **Measure** | Run the COSMO detector, compare flagged samples to the planted swaps, report precision/recall/F1 swept over corruption rate | `evals/mislabel_detection.py` → `MislabelDetectionEval` (detector: `core/cross_omics_matcher.py`) | ✅ implemented |
-| ④ **Improve** | Feed the measured score back: tune the detector and regenerate harder cohorts up to the operating frontier | `clue/loop.py` → `CLUELoop` (eval-level); intent-lifecycle integration ⭕ | ✅ implemented |
+| ④ **Improve** | Feed the measured score back: tune the detector and regenerate harder cohorts up to the operating frontier | `clue/loop.py` → `CLUELoop`; wired into VERIFY via ml_service `/ml/evaluate` | ✅ implemented |
 
 > **Honest status.** All four loop stages are **implemented and tested**: generate (`core/synthetic.py`), measure (`evals/mislabel_detection.py`), and improve/regenerate (`clue/loop.py`) — the last tunes the detector against planted ground truth and escalates corruption to the detector's operating frontier. The loop is also wired into the platform **intent lifecycle** — `mislabel_detection` is a registered assurance eval whose VERIFY step tunes the detector and gates on the tuned F1. One honest caveat remains: "improve" tunes the detector's *decision threshold*, not full model retraining yet. See [Implementation status](#implementation-status). This README is explicit about what is wired vs. designed.
 
@@ -178,7 +178,7 @@ flowchart LR
 | **TrainingIntent** | Fine-tune BioMistral / expression encoder | Job completion → auto-deploy |
 | **ValidationIntent** | Cross-omics concordance gate | Hallucination detection ≥ 90%, adversarial robustness = 100% |
 
-The lifecycle is implemented twice during an in-flight migration: the Python reference (`intents/`) and the Go service that supersedes it (`intent-controller/`). The loop is wired into VERIFY: `mislabel_detection` is a registered assurance eval (`intents/assurance.py`) that — when an intent lists it in `eval_criteria` — generates a cohort from the intent params, runs the improve step (threshold tuning), and gates the intent on the tuned F1. Porting this runner to the Go `AssuranceLoop` rides along with the migration.
+The lifecycle now lives solely in the Go service (`intent-controller/`); the legacy Python reference (`intents/`) has been **decommissioned** after the Go service reached parity, and the controller runs multiple replicas safely via a cross-replica claim/lease (Postgres `FOR UPDATE SKIP LOCKED`). The loop is wired into VERIFY through the ML service: the controller's `RunEval` posts to `ml_service`'s `/ml/evaluate`, which routes `eval_name="mislabel_detection"` (one of six evals) to generate a cohort from the intent params, run the improve step (threshold tuning), and gate the intent on the tuned F1.
 
 ### Skills, tools, evals
 
@@ -211,10 +211,10 @@ Synthetic data is the **measurement instrument**, not the deliverable. The inten
 | Controllable corruption rate / scale / seed | ✅ generator parameters |
 | COSMO detector (impute → match → predict → dual-validate) | ✅ `core/` |
 | Biological-validity / reproducibility / hallucination / robustness evals | ✅ `evals/` |
-| Intent lifecycle (observe-decide-act-verify) | ✅ Python `intents/`; Go `intent-controller/` (migration in progress) |
+| Intent lifecycle (observe-decide-act-verify) | ✅ Go `intent-controller/` (Python `intents/` decommissioned); multi-replica-safe via cross-replica lease |
 | Detection scored vs. synthetic ground truth (P/R/F1) across rates | ✅ `evals/mislabel_detection.py` (tested) |
 | Closed loop: tune detector + regenerate harder to the operating frontier | ✅ `clue/loop.py` → `CLUELoop` (tested) |
-| Loop wired into intent lifecycle (VERIFY gates on tuned detection) | ✅ `intents/assurance.py` (tested; Go port pending) |
+| Loop wired into intent lifecycle (VERIFY gates on tuned detection) | ✅ via ml_service `/ml/evaluate` eval routing; Go `RunEval` → `mislabel_detection` |
 | Full model-retrain feedback (vs. threshold tuning) | ⭕ designed — the remaining depth |
 | Infrastructure as code | ✅ `infra-ts/` (TypeScript Pulumi); automated deploy currently disabled — see [DEPLOY.md](DEPLOY.md) |
 
@@ -270,18 +270,17 @@ upstream-label-correction/
 ├── clue/                 # closed loop: generate → measure → improve → regenerate (CLUELoop)
 ├── agent_skills/         # biomarker discovery, sample QC, cross-omics, literature grounding
 ├── mcp_server/           # MCP tools (genomics + intent lifecycle)
-├── intents/              # Python intent lifecycle (being superseded by intent-controller/)
-├── intent-controller/    # Go intent + workflow engine (active migration target)
+├── intent-controller/    # Go intent lifecycle + workflow engine (multi-replica via DB lease)
+├── ml_service/           # FastAPI ML service: /ml/* endpoints incl. /ml/evaluate eval routing
 ├── web/                  # Next.js dashboard + API routes (TypeScript)
 ├── dspy_modules/         # DSPy prompt optimization
 ├── training/             # BioMistral QLoRA fine-tuning, expression encoder (GPU/DDP)
 ├── infra-ts/             # TypeScript Pulumi infrastructure (GCP)
-├── api/  workflows/      # Python FastAPI + legacy orchestration (migrating to Go)
 ├── tests/                # test suite
 └── docs/                 # extended documentation (+ docs/archive/ for retired docs)
 ```
 
-> Note: the platform is mid-migration from a Python monolith to a polyglot split (Go intent-controller, TypeScript web/infra, Python ML core). Some Python modules (`api/`, `workflows/`, `intents/`) are slated for decommission once their Go/TS replacements reach parity — see [PULUMI_MIGRATION_PLAN.md](PULUMI_MIGRATION_PLAN.md).
+> Note: the platform has largely completed its migration from a Python monolith to a polyglot split (Go `intent-controller`, TypeScript `web`/`infra-ts`, Python ML core). The Python `intents/` and `workflows/` packages have been **decommissioned** — the Go `intent-controller` owns the intent lifecycle and workflow engine, and `ml_service` owns eval execution via `/ml/evaluate`. See [PULUMI_MIGRATION_PLAN.md](PULUMI_MIGRATION_PLAN.md).
 
 ---
 
