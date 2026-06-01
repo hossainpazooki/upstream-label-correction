@@ -197,9 +197,7 @@ class CLUELoop:
         train_seed_offset: int = 1000,
     ) -> None:
         if improve_mode not in ("threshold", "retrain", "both"):
-            raise ValueError(
-                f"improve_mode must be 'threshold', 'retrain', or 'both'; got {improve_mode!r}"
-            )
+            raise ValueError(f"improve_mode must be 'threshold', 'retrain', or 'both'; got {improve_mode!r}")
         self.target_f1 = target_f1
         self.start_fraction = start_fraction
         self.fraction_step = fraction_step
