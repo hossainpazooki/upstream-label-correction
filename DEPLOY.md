@@ -10,25 +10,26 @@ Infrastructure is defined as **TypeScript Pulumi** in [`infra-ts/`](./infra-ts/)
 
 ## Architecture
 
-Three Cloud Run services behind a Serverless VPC Connector, plus managed data
+Four Cloud Run services behind a Serverless VPC Connector, plus managed data
 services and Vertex AI — all defined in `infra-ts/index.ts`.
 
 | Service | Image | Port | Auth | Notes |
 |---|---|---|---|---|
 | `precision-genomics-web` | `web:latest` (Next.js) | 3000 | public | min 1 / max 10 instances |
+| `precision-genomics-intent` | `intent-controller:latest` (Go) | 8090 | internal | singleton (min 1 / max 1); reconcile + recover loops |
 | `precision-genomics-ml` | `ml:latest` (Python ML) | 8000 | internal | scale-to-zero, 8Gi, 900s timeout |
 | `precision-genomics-mcp` | `mcp:latest` (MCP server) | 8080 | public | min 1 / max 5 instances |
 
-> **Deploy follow-up — `intent-controller` not yet provisioned:** the Go
-> `intent-controller` (port 8090) builds and runs (`intent-controller/Dockerfile`)
-> but has **no `CloudRunService` in `infra-ts/index.ts`** and **no build step in
-> the deploy workflows**, so `pulumi up` will not deploy it. This is a
-> deployment gap, not a migration gap (the code migration is complete — see the
-> retired [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md)). To close it:
-> add a `CloudRunService("precision-genomics-intent", { port: 8090, … })` wired
-> to Cloud SQL + `ML_SERVICE_URL`, add an `intent-controller` image build/push
-> to both deploy workflows, and set the `web` service's `INTENT_CONTROLLER_URL`
-> env to the new service URL.
+> **`intent-controller` wiring:** it reads a full `DATABASE_URL` (assembled in
+> `index.ts` from the Cloud SQL private IP and the `app` DB user/password) and
+> `ML_SERVICE_URL` (the `precision-genomics-ml` URL). The `web` service is given
+> `INTENT_CONTROLLER_URL` to proxy intent/workflow ops to it. It is a singleton
+> (`max 1`); the cross-replica claim/lease (durability "step 3") makes scaling
+> past 1 safe if request load ever requires it. Two known follow-ups, shared with
+> `ml`: (1) the DB password lands as a plain Cloud Run env via `DATABASE_URL`
+> rather than a Secret-Manager-injected secret — harden by storing the assembled
+> URL in Secret Manager; (2) internal services have no service-account
+> `run.invoker` bindings yet, so `web → intent`/`ml` calls rely on VPC reachability.
 
 Backing services: Cloud SQL (PostgreSQL), Memorystore Redis, 3 GCS buckets,
 Artifact Registry (`precision-genomics`), Secret Manager
@@ -81,6 +82,7 @@ pulumi stack output            # all outputs
 pulumi stack output webUrl
 pulumi stack output mlServiceUrl
 pulumi stack output mcpUrl
+pulumi stack output intentControllerUrl
 ```
 
 ### Build & push images
@@ -91,14 +93,11 @@ Cloud Run services. Build and push each:
 REGISTRY=us-central1-docker.pkg.dev/prec-genomics-agent/precision-genomics
 gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
-docker build -f web/Dockerfile     -t $REGISTRY/web:latest web/   && docker push $REGISTRY/web:latest
-docker build -f Dockerfile.ml      -t $REGISTRY/ml:latest  .      && docker push $REGISTRY/ml:latest
-docker build -f web/Dockerfile.mcp -t $REGISTRY/mcp:latest web/   && docker push $REGISTRY/mcp:latest
+docker build -f web/Dockerfile        -t $REGISTRY/web:latest              web/               && docker push $REGISTRY/web:latest
+docker build -f Dockerfile.ml         -t $REGISTRY/ml:latest               .                  && docker push $REGISTRY/ml:latest
+docker build -f web/Dockerfile.mcp    -t $REGISTRY/mcp:latest              web/               && docker push $REGISTRY/mcp:latest
+docker build -f intent-controller/Dockerfile -t $REGISTRY/intent-controller:latest intent-controller/ && docker push $REGISTRY/intent-controller:latest
 ```
-
-> The `intent-controller` image (`docker build -f intent-controller/Dockerfile
-> intent-controller/`) is not consumed by `pulumi up` yet — build/push it only
-> once a `CloudRunService` for it is added to `infra-ts/index.ts`.
 
 ---
 
@@ -106,25 +105,24 @@ docker build -f web/Dockerfile.mcp -t $REGISTRY/mcp:latest web/   && docker push
 
 Both deploy workflows are **rewritten for the infra-ts/Pulumi architecture** —
 they authenticate via Workload Identity Federation, build the images, and run
-`pulumi up` from `infra-ts/`. One deploy gap remains (below), plus the secrets.
+`pulumi up` from `infra-ts/`. The Pulumi path now provisions and builds all four
+services; the only thing left to enable auto-deploy is the secrets.
 
-- **`deploy-pulumi.yml`** (primary IaC path): builds/pushes `web`, `ml`, and
-  `mcp` from the correct Dockerfiles — image names match what `infra-ts/index.ts`
-  pulls — then runs `pulumi up` from `infra-ts/` via the Pulumi GitHub Action
-  (CrossGuard policies in `infra-ts/policies`).
+- **`deploy-pulumi.yml`** (primary IaC path): builds/pushes `web`, `ml`, `mcp`,
+  and `intent-controller` from the correct Dockerfiles — image names match what
+  `infra-ts/index.ts` pulls — then runs `pulumi up` from `infra-ts/` via the
+  Pulumi GitHub Action (CrossGuard policies in `infra-ts/policies`).
 - **`deploy-gcp.yml`** (direct `gcloud` fallback): self-contained — builds
   `ml-service`/`mcp-sse` and `gcloud run deploy`s those same images directly
-  (no Pulumi), so its names are internally consistent. Note its Cloud Run
-  service names (`precision-genomics-ml-service`, `-mcp-sse`) differ from the
-  Pulumi path's (`precision-genomics-ml`, `-mcp`) — don't run both paths against
-  one project or you'll get duplicate services.
+  (no Pulumi), so its names are internally consistent. Note: it does **not**
+  deploy the `intent-controller` (Pulumi path only), and its Cloud Run service
+  names (`precision-genomics-ml-service`, `-mcp-sse`) differ from the Pulumi
+  path's — don't run both paths against one project or you'll get duplicate
+  services. Prefer the Pulumi path for a complete deploy.
 
-> ⚠️ **`intent-controller` not provisioned** — see the Architecture note above.
-> This is the one remaining gap before the Pulumi path deploys the full system.
-
-Both are **`workflow_dispatch`-only** today. To enable auto-deploy: close the
-`intent-controller` gap above, configure these four repo secrets, then restore
-the `workflow_run`/push trigger (a header comment in `deploy-pulumi.yml` marks where):
+Both are **`workflow_dispatch`-only** today. To enable auto-deploy: configure
+these four repo secrets, then restore the `workflow_run`/push trigger (a header
+comment in `deploy-pulumi.yml` marks where):
 
 | Secret | Purpose |
 |---|---|

@@ -76,6 +76,16 @@ jobs:
           docker push ${{ env.REGISTRY }}/mcp:${{ github.sha }}
           docker push ${{ env.REGISTRY }}/mcp:latest
 
+      # Image name must match what infra-ts/index.ts pulls (`intent-controller:latest`).
+      - name: Build and push intent-controller image
+        run: |
+          docker build -f intent-controller/Dockerfile \
+            -t ${{ env.REGISTRY }}/intent-controller:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/intent-controller:latest \
+            intent-controller/
+          docker push ${{ env.REGISTRY }}/intent-controller:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/intent-controller:latest
+
     outputs:
       image-tag: ${{ github.sha }}
 

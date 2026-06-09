@@ -77,27 +77,8 @@ const dataServiceSecrets: Record<string, pulumi.Input<string>> = {
 
 const redisUrl = pulumi.interpolate`redis://${cache.host}:${cache.port}/0`;
 
-// --- Cloud Run: Web (Next.js) ---
-const webService = new CloudRunService("precision-genomics-web", {
-  projectId: cfg.projectId,
-  region: cfg.region,
-  image: registry.registryUrl.apply((url) => `${url}/web:latest`),
-  port: 3000,
-  cpu: "2",
-  memory: "2Gi",
-  minInstances: 1,
-  maxInstances: 10,
-  vpcConnectorId: networking.vpcConnectorId,
-  envVars: {
-    ...commonEnv,
-    REDIS_URL: redisUrl,
-    CLOUD_SQL_INSTANCE: database.connectionName,
-  },
-  secrets: commonSecrets,
-  allowUnauthenticated: true,
-});
-
 // --- Cloud Run: ML Service (Python) ---
+// Declared first: the intent-controller and mcp services reference its URL.
 const mlService = new CloudRunService("precision-genomics-ml", {
   projectId: cfg.projectId,
   region: cfg.region,
@@ -116,6 +97,63 @@ const mlService = new CloudRunService("precision-genomics-ml", {
   },
   secrets: dataServiceSecrets,
   timeout: "900s",
+});
+
+// --- Cloud Run: Intent Controller (Go) ---
+// The Go controller reads a full DATABASE_URL (not CLOUD_SQL_INSTANCE), so we
+// assemble one from the Cloud SQL private IP and the `app` DB user/password the
+// database component creates. cfg.dbPassword is a Pulumi secret, so Pulumi marks
+// this value secret in state — but note it still lands as a plain Cloud Run env
+// var (the password is visible in the service config), unlike the other services
+// which inject DATABASE_PASSWORD via Secret Manager. Hardening path: store the
+// assembled URL in Secret Manager and inject it via `secrets`. The password must
+// be URL-safe (no @ : / # chars) as it is not percent-encoded here.
+const intentDatabaseUrl = pulumi.interpolate`postgresql://app:${cfg.dbPassword}@${database.privateIp}:5432/precision_genomics`;
+
+const intentService = new CloudRunService("precision-genomics-intent", {
+  projectId: cfg.projectId,
+  region: cfg.region,
+  image: registry.registryUrl.apply((url) => `${url}/intent-controller:latest`),
+  port: 8090,
+  cpu: "1",
+  memory: "512Mi",
+  // Singleton: min 1 keeps the reconcile/recover loops always running. The
+  // cross-replica claim/lease (durability "step 3") makes >1 safe if request
+  // load ever needs it — raise maxInstances then. Internal only (no
+  // allowUnauthenticated): it is fronted by the web service.
+  minInstances: 1,
+  maxInstances: 1,
+  vpcConnectorId: networking.vpcConnectorId,
+  envVars: {
+    ...commonEnv,
+    DATABASE_URL: intentDatabaseUrl,
+    ML_SERVICE_URL: mlService.url,
+    PORT: "8090",
+  },
+  secrets: commonSecrets,
+});
+
+// --- Cloud Run: Web (Next.js) ---
+// Declared after the intent-controller so it can proxy to its URL.
+const webService = new CloudRunService("precision-genomics-web", {
+  projectId: cfg.projectId,
+  region: cfg.region,
+  image: registry.registryUrl.apply((url) => `${url}/web:latest`),
+  port: 3000,
+  cpu: "2",
+  memory: "2Gi",
+  minInstances: 1,
+  maxInstances: 10,
+  vpcConnectorId: networking.vpcConnectorId,
+  envVars: {
+    ...commonEnv,
+    REDIS_URL: redisUrl,
+    CLOUD_SQL_INSTANCE: database.connectionName,
+    ML_SERVICE_URL: mlService.url,
+    INTENT_CONTROLLER_URL: intentService.url,
+  },
+  secrets: commonSecrets,
+  allowUnauthenticated: true,
 });
 
 // --- Cloud Run: MCP Server (TypeScript) ---
@@ -147,6 +185,7 @@ new VertexAI("vertex-ai", {
 export const webUrl = webService.url;
 export const mlServiceUrl = mlService.url;
 export const mcpUrl = mcpService.url;
+export const intentControllerUrl = intentService.url;
 export const cloudSqlConnectionName = database.connectionName;
 export const cloudSqlPrivateIp = database.privateIp;
 export const redisHost = cache.host;
