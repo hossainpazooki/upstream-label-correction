@@ -28,7 +28,7 @@ services and Vertex AI — all defined in `infra-ts/index.ts`.
 > add a `CloudRunService("precision-genomics-intent", { port: 8090, … })` wired
 > to Cloud SQL + `ML_SERVICE_URL`, add an `intent-controller` image build/push
 > to both deploy workflows, and set the `web` service's `INTENT_CONTROLLER_URL`
-> env to the new service URL. See **CI/CD status** for a second image-name gap.
+> env to the new service URL.
 
 Backing services: Cloud SQL (PostgreSQL), Memorystore Redis, 3 GCS buckets,
 Artifact Registry (`precision-genomics`), Secret Manager
@@ -106,27 +106,25 @@ docker build -f web/Dockerfile.mcp -t $REGISTRY/mcp:latest web/   && docker push
 
 Both deploy workflows are **rewritten for the infra-ts/Pulumi architecture** —
 they authenticate via Workload Identity Federation, build the images, and run
-`pulumi up` from `infra-ts/`. Two gaps remain before a CI deploy fully succeeds
-(both below), plus the secrets.
+`pulumi up` from `infra-ts/`. One deploy gap remains (below), plus the secrets.
 
-- **`deploy-pulumi.yml`** (primary IaC path): builds/pushes `web`, `ml-service`,
-  and `mcp-sse` from the correct Dockerfiles, runs `pulumi up` from `infra-ts/`
-  via the Pulumi GitHub Action (CrossGuard policies in `infra-ts/policies`).
-- **`deploy-gcp.yml`** (direct `gcloud` fallback): same image builds, imperative
-  `gcloud run deploy` to `precision-genomics-{web,ml-service}`.
+- **`deploy-pulumi.yml`** (primary IaC path): builds/pushes `web`, `ml`, and
+  `mcp` from the correct Dockerfiles — image names match what `infra-ts/index.ts`
+  pulls — then runs `pulumi up` from `infra-ts/` via the Pulumi GitHub Action
+  (CrossGuard policies in `infra-ts/policies`).
+- **`deploy-gcp.yml`** (direct `gcloud` fallback): self-contained — builds
+  `ml-service`/`mcp-sse` and `gcloud run deploy`s those same images directly
+  (no Pulumi), so its names are internally consistent. Note its Cloud Run
+  service names (`precision-genomics-ml-service`, `-mcp-sse`) differ from the
+  Pulumi path's (`precision-genomics-ml`, `-mcp`) — don't run both paths against
+  one project or you'll get duplicate services.
 
-> ⚠️ **Image-name mismatch (must fix before a CI deploy works):** the workflows
-> push `ml-service:` and `mcp-sse:`, but `infra-ts/index.ts` pulls `ml:` and
-> `mcp:` (the manual build commands above also use `ml`/`mcp`). So `pulumi up`
-> would point Cloud Run at images that were never pushed under those names.
-> Fix: align the workflow image names to `ml` and `mcp` (or rename the infra-ts
-> image refs to match the workflows) — pick one and use it everywhere.
->
 > ⚠️ **`intent-controller` not provisioned** — see the Architecture note above.
+> This is the one remaining gap before the Pulumi path deploys the full system.
 
-Both are **`workflow_dispatch`-only** today. To enable auto-deploy: fix the two
-gaps above, configure these four repo secrets, then restore the
-`workflow_run`/push trigger (a header comment in `deploy-pulumi.yml` marks where):
+Both are **`workflow_dispatch`-only** today. To enable auto-deploy: close the
+`intent-controller` gap above, configure these four repo secrets, then restore
+the `workflow_run`/push trigger (a header comment in `deploy-pulumi.yml` marks where):
 
 | Secret | Purpose |
 |---|---|

@@ -55,23 +55,26 @@ jobs:
           docker push ${{ env.REGISTRY }}/web:${{ github.sha }}
           docker push ${{ env.REGISTRY }}/web:latest
 
-      - name: Build and push ml-service image
+      # Image name must match what infra-ts/index.ts pulls (`ml:<tag>`), or
+      # `pulumi up` will point Cloud Run at an image that was never pushed.
+      - name: Build and push ml image
         run: |
           docker build -f Dockerfile.ml \
-            -t ${{ env.REGISTRY }}/ml-service:${{ github.sha }} \
-            -t ${{ env.REGISTRY }}/ml-service:latest \
+            -t ${{ env.REGISTRY }}/ml:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/ml:latest \
             .
-          docker push ${{ env.REGISTRY }}/ml-service:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/ml-service:latest
+          docker push ${{ env.REGISTRY }}/ml:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/ml:latest
 
-      - name: Build and push mcp-sse image
+      # Image name must match what infra-ts/index.ts pulls (`mcp:latest`).
+      - name: Build and push mcp image
         run: |
           docker build -f web/Dockerfile.mcp \
-            -t ${{ env.REGISTRY }}/mcp-sse:${{ github.sha }} \
-            -t ${{ env.REGISTRY }}/mcp-sse:latest \
+            -t ${{ env.REGISTRY }}/mcp:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/mcp:latest \
             web/
-          docker push ${{ env.REGISTRY }}/mcp-sse:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/mcp-sse:latest
+          docker push ${{ env.REGISTRY }}/mcp:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/mcp:latest
 
     outputs:
       image-tag: ${{ github.sha }}
