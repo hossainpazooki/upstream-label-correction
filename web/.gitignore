@@ -1,0 +1,22 @@
+# Next.js build output
+/.next/
+/out/
+
+# Next.js generated type shim
+next-env.d.ts
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Prisma generated client (regenerated via `prisma generate`)
+/src/generated/
+
+# Test / coverage artifacts
+/coverage/
+/playwright-report/
+/test-results/
+
+# Local env files (committed: .env.example)
+.env
+.env.local
+.env*.local
