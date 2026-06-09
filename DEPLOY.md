@@ -19,10 +19,16 @@ services and Vertex AI — all defined in `infra-ts/index.ts`.
 | `precision-genomics-ml` | `ml:latest` (Python ML) | 8000 | internal | scale-to-zero, 8Gi, 900s timeout |
 | `precision-genomics-mcp` | `mcp:latest` (MCP server) | 8080 | public | min 1 / max 5 instances |
 
-> **Not yet in `infra-ts/`:** the Go `intent-controller` (port 8090) builds and
-> runs (`intent-controller/Dockerfile`) but is **not provisioned by Pulumi
-> yet** — no `CloudRunService` exists for it in `index.ts`. Adding it is a
-> follow-up to Migration 1 in [`PULUMI_MIGRATION_PLAN.md`](./PULUMI_MIGRATION_PLAN.md).
+> **Deploy follow-up — `intent-controller` not yet provisioned:** the Go
+> `intent-controller` (port 8090) builds and runs (`intent-controller/Dockerfile`)
+> but has **no `CloudRunService` in `infra-ts/index.ts`** and **no build step in
+> the deploy workflows**, so `pulumi up` will not deploy it. This is a
+> deployment gap, not a migration gap (the code migration is complete — see the
+> retired [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md)). To close it:
+> add a `CloudRunService("precision-genomics-intent", { port: 8090, … })` wired
+> to Cloud SQL + `ML_SERVICE_URL`, add an `intent-controller` image build/push
+> to both deploy workflows, and set the `web` service's `INTENT_CONTROLLER_URL`
+> env to the new service URL. See **CI/CD status** for a second image-name gap.
 
 Backing services: Cloud SQL (PostgreSQL), Memorystore Redis, 3 GCS buckets,
 Artifact Registry (`precision-genomics`), Secret Manager
@@ -30,8 +36,8 @@ Artifact Registry (`precision-genomics`), Secret Manager
 
 > **Orchestration note:** GCP Workflows are no longer used. Intent lifecycle and
 > workflow orchestration run in the Go `intent-controller`
-> (`intent-controller/internal/workflow`). See
-> [`PULUMI_MIGRATION_PLAN.md`](./PULUMI_MIGRATION_PLAN.md).
+> (`intent-controller/internal/workflow`). See the retired
+> [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md) for the full split.
 
 ---
 
@@ -98,18 +104,28 @@ docker build -f web/Dockerfile.mcp -t $REGISTRY/mcp:latest web/   && docker push
 
 ## CI/CD status
 
-Both deploy workflows are **rewritten for the infra-ts/Pulumi architecture** and
-ready — they are gated on credentials only, not on being wrong.
+Both deploy workflows are **rewritten for the infra-ts/Pulumi architecture** —
+they authenticate via Workload Identity Federation, build the images, and run
+`pulumi up` from `infra-ts/`. Two gaps remain before a CI deploy fully succeeds
+(both below), plus the secrets.
 
 - **`deploy-pulumi.yml`** (primary IaC path): builds/pushes `web`, `ml-service`,
   and `mcp-sse` from the correct Dockerfiles, runs `pulumi up` from `infra-ts/`
-  via the Pulumi GitHub Action (CrossGuard policies in `infra-ts/policies`), and
-  authenticates with Workload Identity Federation.
+  via the Pulumi GitHub Action (CrossGuard policies in `infra-ts/policies`).
 - **`deploy-gcp.yml`** (direct `gcloud` fallback): same image builds, imperative
   `gcloud run deploy` to `precision-genomics-{web,ml-service}`.
 
-Both are **`workflow_dispatch`-only** today. The only remaining step to enable
-auto-deploy is configuring these four repo secrets, then restoring the
+> ⚠️ **Image-name mismatch (must fix before a CI deploy works):** the workflows
+> push `ml-service:` and `mcp-sse:`, but `infra-ts/index.ts` pulls `ml:` and
+> `mcp:` (the manual build commands above also use `ml`/`mcp`). So `pulumi up`
+> would point Cloud Run at images that were never pushed under those names.
+> Fix: align the workflow image names to `ml` and `mcp` (or rename the infra-ts
+> image refs to match the workflows) — pick one and use it everywhere.
+>
+> ⚠️ **`intent-controller` not provisioned** — see the Architecture note above.
+
+Both are **`workflow_dispatch`-only** today. To enable auto-deploy: fix the two
+gaps above, configure these four repo secrets, then restore the
 `workflow_run`/push trigger (a header comment in `deploy-pulumi.yml` marks where):
 
 | Secret | Purpose |

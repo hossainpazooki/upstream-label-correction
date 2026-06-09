@@ -278,7 +278,7 @@ upstream-label-correction/
 └── docs/                 # extended documentation (+ docs/archive/ for retired docs)
 ```
 
-> Note: the platform has largely completed its migration from a Python monolith to a polyglot split (Go `intent-controller`, TypeScript `web`/`infra-ts`, Python ML core). The Python `intents/` and `workflows/` packages have been **decommissioned** — the Go `intent-controller` owns the intent lifecycle and workflow engine, and `ml_service` owns eval execution via `/ml/evaluate`. See [PULUMI_MIGRATION_PLAN.md](PULUMI_MIGRATION_PLAN.md).
+> Note: the platform has **completed** its migration from a Python monolith to a polyglot split (Go `intent-controller`, TypeScript `web`/`infra-ts`, Python ML core). The Python `intents/` and `workflows/` packages are **decommissioned** — the Go `intent-controller` owns the intent lifecycle and workflow engine, and `ml_service` owns eval execution via `/ml/evaluate`. The migration plan that drove this is retired to [docs/archive/PULUMI_MIGRATION_PLAN.md](docs/archive/PULUMI_MIGRATION_PLAN.md); the current architecture is described above and in [DEPLOY.md](DEPLOY.md).
 
 ---
 
@@ -291,7 +291,7 @@ upstream-label-correction/
 - [Temporal-Equivalent Workflow Functionality](docs/TEMPORAL_FUNCTIONALITY.md) — retries + parallel fan-out recovered in the Go engine
 - [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible-AI practices and eval design
 - [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, GPU training
-- [Deployment](DEPLOY.md) · [Pulumi Migration Plan](PULUMI_MIGRATION_PLAN.md) · [Archived docs](docs/archive/)
+- [Deployment](DEPLOY.md) · [Archived docs](docs/archive/) (incl. the retired [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md))
 
 ## License
 
