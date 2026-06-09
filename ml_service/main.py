@@ -363,6 +363,48 @@ def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
     }
 
 
+def _eval_fidelity_gate(params: dict | None, threshold: float) -> dict:
+    """Gate cohort fidelity — stage ② (detectable-by-construction).
+
+    Generates a synthetic cohort from the posted params and checks that its
+    planted molecular swaps separate from clean samples on the threshold-free
+    cross-omics AUROC (``evals.fidelity_gate.FidelityGateEval``). This is the
+    construction-validity check that should clear *before* the stage-③
+    mislabel-detection measurement is trusted: a cohort that fails here carries
+    no signal for a detector to find, so any F1 measured on it is meaningless.
+
+    The gate uses the same detector invocation as ``mislabel_detection`` but no
+    decision threshold — ``threshold`` here is the minimum acceptable AUROC
+    (default 0.80 when the gate is called with the assurance default of 0.0).
+
+    Relevant params (with defaults): ``mislabel_fraction`` (0.30 — enough
+    injected swaps to verify), ``n_samples`` (80), ``n_genes_proteomics``
+    (2000), ``n_genes_rnaseq`` (4000), ``seed`` (42),
+    ``distance_method`` ("expression_rank").
+    """
+    from core.synthetic import SyntheticCohortGenerator
+    from evals.fidelity_gate import DEFAULT_AUROC_THRESHOLD, FidelityGateEval
+
+    params = params or {}
+    # A 0.0 threshold from the assurance default would pass any cohort; fall back
+    # to the eval's own AUROC bar so the gate stays meaningful when ungated.
+    auroc_threshold = threshold if threshold > 0.0 else DEFAULT_AUROC_THRESHOLD
+
+    generator = SyntheticCohortGenerator(
+        n_samples=int(params.get("n_samples", 80)),
+        n_genes_proteomics=int(params.get("n_genes_proteomics", 2000)),
+        n_genes_rnaseq=int(params.get("n_genes_rnaseq", 4000)),
+        mislabel_fraction=float(params.get("mislabel_fraction", 0.30)),
+        seed=int(params.get("seed", 42)),
+    )
+    result = FidelityGateEval().evaluate(
+        generator.generate_cohort(),
+        threshold=auroc_threshold,
+        distance_method=str(params.get("distance_method", "expression_rank")),
+    )
+    return _eval_result_to_dict(result)
+
+
 #: Synchronous eval runners keyed on eval_name. Async runners are dispatched
 #: separately in evaluate() because they must be awaited.
 _SYNC_EVAL_RUNNERS = {
@@ -371,6 +413,7 @@ _SYNC_EVAL_RUNNERS = {
     "hallucination_detection": _eval_hallucination_detection,
     "benchmark_comparison": _eval_benchmark_comparison,
     "mislabel_detection": _eval_mislabel_detection,
+    "fidelity_gate": _eval_fidelity_gate,
 }
 
 

@@ -35,7 +35,7 @@ flowchart LR
 | Stage | What it does | Backed by | Status |
 |---|---|---|---|
 | ① **Generate** | Synthetic cohorts with planted MSI/gender signal and injected proteomics/RNA-Seq/clinical swaps; emits a ground-truth record of every swap | `core/synthetic.py` → `SyntheticCohortGenerator` | ✅ implemented |
-| ② **Verify fidelity** | Confirm the cohort is *detectable-by-construction* — biological signal is recoverable and reproducible, so results transfer to real data | `evals/biological_validity.py`, `evals/reproducibility.py` | 🔶 partial |
+| ② **Verify fidelity** | Confirm the cohort is *detectable-by-construction* — planted swaps separate from clean samples on a threshold-free cross-omics AUROC, and biological signal is recoverable and reproducible, so results transfer to real data | `evals/fidelity_gate.py` → `FidelityGateEval`; `evals/biological_validity.py`, `evals/reproducibility.py` | ✅ implemented |
 | ③ **Measure** | Run the COSMO detector, compare flagged samples to the planted swaps, report precision/recall/F1 swept over corruption rate | `evals/mislabel_detection.py` → `MislabelDetectionEval` (detector: `core/cross_omics_matcher.py`) | ✅ implemented |
 | ④ **Improve** | Feed the measured score back: tune the detector and regenerate harder cohorts up to the operating frontier | `clue/loop.py` → `CLUELoop`; wired into VERIFY via ml_service `/ml/evaluate` | ✅ implemented |
 
@@ -122,7 +122,7 @@ flowchart LR
 - **Predict** (`core/classifier.py`) — an ensemble of 4 classifiers × 2 phenotype strategies (gender, MSI) stacked into a meta-learner; flags samples whose molecular phenotype contradicts their annotation.
 - **Dual-validate** (`core/cross_omics_matcher.py`) — `dual_validate()` cross-checks the two independent flag sources: **HIGH** (both agree) / **REVIEW** (one) / **PASS** (neither). Two-path concordance is what makes a mismatch call trustworthy enough to act on.
 
-**Fidelity verification (②)** keeps the synthetic cohort honest — a detector tuned on signal-free noise wouldn't transfer to real data. Today this is enforced by the biological-validity and reproducibility evals (the planted MSI pathway genes must be recoverable; the same seed must reproduce results). A dedicated "is this corruption detectable-by-construction" gate is part of the closing work.
+**Fidelity verification (②)** keeps the synthetic cohort honest — a detector tuned on signal-free noise wouldn't transfer to real data. The dedicated "is this corruption detectable-by-construction" gate is `evals/fidelity_gate.py` (`FidelityGateEval`): it runs the same model-free cross-omics scorer the detector relies on and checks that molecular-swapped samples separate from clean ones by **AUROC** — a threshold-free measure of whether a separable signal exists *at all*, distinct from stage ③ which scores how well one tuned detector catches it. A cohort that fails the gate (AUROC near chance) carries no signal to detect, so any F1 measured on it would be meaningless; it is reachable in VERIFY via `/ml/evaluate` (`eval_name="fidelity_gate"`). This is backed up by the biological-validity and reproducibility evals (the planted MSI pathway genes must be recoverable; the same seed must reproduce results).
 
 **Detection measurement (③)** is wired. `MislabelDetectionEval` (`evals/mislabel_detection.py`) runs the cross-omics detector on a generated cohort, scores its flags against the planted `swap_pairs` as precision / recall / F1, and sweeps the corruption rate real data can't provide:
 
