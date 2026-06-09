@@ -98,19 +98,32 @@ docker build -f web/Dockerfile.mcp -t $REGISTRY/mcp:latest web/   && docker push
 
 ## CI/CD status
 
-⚠️ **Automated GCP deploy is currently disabled.** The
-`.github/workflows/deploy-gcp.yml` workflow auto-trigger was removed (commit
-`d2a263f`) because it referenced deleted Dockerfiles and the GCP auth secrets
-are not yet configured. It is now `workflow_dispatch`-only and still encodes
-the **old** `gcloud run deploy` flow rather than `pulumi up`.
+Both deploy workflows are **rewritten for the infra-ts/Pulumi architecture** and
+ready — they are gated on credentials only, not on being wrong.
 
-**Before re-enabling, the workflow needs to be rewritten to:**
-1. Build/push the four images (paths above).
-2. Run `pulumi up` from `infra-ts/` instead of imperative `gcloud run deploy`.
-3. Authenticate via Workload Identity Federation — requires repo secrets
-   `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`.
+- **`deploy-pulumi.yml`** (primary IaC path): builds/pushes `web`, `ml-service`,
+  and `mcp-sse` from the correct Dockerfiles, runs `pulumi up` from `infra-ts/`
+  via the Pulumi GitHub Action (CrossGuard policies in `infra-ts/policies`), and
+  authenticates with Workload Identity Federation.
+- **`deploy-gcp.yml`** (direct `gcloud` fallback): same image builds, imperative
+  `gcloud run deploy` to `precision-genomics-{web,ml-service}`.
 
-Until then, deploy manually with the Pulumi steps above.
+Both are **`workflow_dispatch`-only** today. The only remaining step to enable
+auto-deploy is configuring these four repo secrets, then restoring the
+`workflow_run`/push trigger (a header comment in `deploy-pulumi.yml` marks where):
+
+| Secret | Purpose |
+|---|---|
+| `GCP_PROJECT_ID` | target project for images + Cloud Run |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | keyless WIF auth |
+| `GCP_SERVICE_ACCOUNT` | deploy identity |
+| `PULUMI_ACCESS_TOKEN` | Pulumi state backend |
+
+Until the secrets land, trigger a deploy manually (Actions → *Deploy (Pulumi)* →
+*Run workflow*) or run the Pulumi steps above locally.
+
+The `web/` Next.js dashboard builds clean (`npm ci && npm run build`, Next 15
+standalone output) and its image is wired into both workflows.
 
 ---
 
