@@ -15,14 +15,29 @@ import pytest
 
 pytest.importorskip("sklearn")
 
+# Post-gap-#5 the gate ignores these caller cohort params and pins them
+# server-side; kept only to confirm they no longer steer the cohort.
 SMALL = {"n_samples": 30, "n_genes_proteomics": 150, "n_genes_rnaseq": 200, "seed": 7}
 _FAKE_BREAKDOWN = {"n_molecular_swaps": 4, "n_clean": 24, "n_clinical_excluded": 2}
+
+
+@pytest.fixture
+def small_gate(monkeypatch):
+    """Shrink the server-pinned gate cohort so routing tests stay fast.
+
+    fidelity_auroc is mocked, but the runner still generates a real cohort; the
+    cohort size is now server-pinned (gap #5), so shrink it via the policy
+    constants rather than via caller params.
+    """
+    monkeypatch.setattr("ml_service.main._GATE_N_SAMPLES", 30)
+    monkeypatch.setattr("ml_service.main._GATE_N_GENES_PROTEOMICS", 150)
+    monkeypatch.setattr("ml_service.main._GATE_N_GENES_RNASEQ", 200)
 
 
 class TestFidelityGateRouting:
     """Integration coverage for the /ml/evaluate fidelity_gate route."""
 
-    def test_routes_and_scores_auroc(self, monkeypatch):
+    def test_routes_and_scores_auroc(self, monkeypatch, small_gate):
         from fastapi.testclient import TestClient
 
         from ml_service.main import app
@@ -46,7 +61,7 @@ class TestFidelityGateRouting:
         assert body["details"]["applicable"] is True
         assert body["details"]["auroc"] == 0.95
 
-    def test_zero_threshold_falls_back_to_default_auroc_bar(self, monkeypatch):
+    def test_zero_threshold_falls_back_to_default_auroc_bar(self, monkeypatch, small_gate):
         """threshold=0.0 (assurance default) must not pass any cohort — the gate
         falls back to its own 0.80 AUROC bar, so an AUROC of 0.70 fails."""
         from fastapi.testclient import TestClient
@@ -70,7 +85,7 @@ class TestFidelityGateRouting:
         assert body["score"] == 0.70
         assert body["passed"] is False
 
-    def test_not_applicable_clean_cohort_passes(self, monkeypatch):
+    def test_not_applicable_clean_cohort_passes(self, monkeypatch, small_gate):
         from fastapi.testclient import TestClient
 
         from ml_service.main import app

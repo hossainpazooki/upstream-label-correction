@@ -21,6 +21,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 
 from fastapi import FastAPI
@@ -190,7 +191,54 @@ def _genes_from_params(params: dict) -> list[str]:
     return genes
 
 
-def _eval_biological_validity(params: dict | None, threshold: float) -> dict:
+# ---------------------------------------------------------------------------
+# Gate cohort policy (gap #5: integrity params are NOT caller-controlled).
+#
+# For eval *gates*, the cohort's integrity-critical parameters — seed, corruption
+# rate, cohort size, feature dimension, distance method — are pinned here on the
+# server rather than read from the caller-supplied intent.Params. This removes
+# the "seed-shopping" vector: a caller cannot hand-pick a seed / a low corruption
+# rate / a tiny cohort that trivially clears the gate. The seed is derived from
+# the server-assigned intent_id, so the gate cohort is reproducible per intent
+# yet unpredictable and not chosen by the caller. (The separate
+# MislabelDetectionEval.sweep() measurement path — where dialing the rate is the
+# entire point — keeps its caller-supplied parameters and is unaffected.)
+#
+# Out of scope here: improve_mode / tune_detector stay caller-readable (they are
+# the tune-on-test surface tracked separately, not cohort shopping), and
+# /ml/evaluate is itself unauthenticated, so intent_id is only trustworthy via
+# the in-cluster controller path.
+# ---------------------------------------------------------------------------
+
+_GATE_N_SAMPLES = 80
+_GATE_N_GENES_PROTEOMICS = 2000
+_GATE_N_GENES_RNASEQ = 4000
+#: Corruption rate every gate tests at. 0.30 is a meaningful, non-trivial rate
+#: at which the detector is stable across seeds (tuned F1 >= 0.97, AUROC >=
+#: 0.997 measured over 6 derived seeds), so the per-intent seed never tips the
+#: gate verdict.
+_GATE_CORRUPTION_RATE = 0.30
+_GATE_DISTANCE_METHOD = "expression_rank"
+_GATE_TRAIN_SEED_OFFSET = 1000
+_GATE_CLASSIFIER_RANDOM_STATE = 42
+#: Fallback seed when no intent_id accompanies the request (e.g. a direct call
+#: outside the controller flow). Fixed so the gate stays deterministic.
+_GATE_FALLBACK_SEED = 42
+
+
+def _gate_seed(intent_id: str | None) -> int:
+    """Derive a stable 32-bit cohort seed from the server-assigned intent_id.
+
+    Uses SHA-256 (stable across processes, unlike Python's salted ``hash``) so
+    the gate cohort is reproducible for a given intent but cannot be chosen by
+    the caller. Falls back to a fixed seed when no intent_id is present.
+    """
+    if not intent_id:
+        return _GATE_FALLBACK_SEED
+    return int.from_bytes(hashlib.sha256(intent_id.encode("utf-8")).digest()[:4], "big")
+
+
+def _eval_biological_validity(params: dict | None, threshold: float, intent_id: str | None = None) -> dict:
     """Score pathway coverage of selected genes (evals.BiologicalValidityEval)."""
     from evals.biological_validity import BiologicalValidityEval
 
@@ -199,7 +247,7 @@ def _eval_biological_validity(params: dict | None, threshold: float) -> dict:
     return _eval_result_to_dict(evaluator.evaluate(genes, threshold=threshold))
 
 
-def _eval_reproducibility(params: dict | None, threshold: float) -> dict:
+def _eval_reproducibility(params: dict | None, threshold: float, intent_id: str | None = None) -> dict:
     """Score feature-selection reproducibility across seeds (evals.ReproducibilityEval)."""
     from core.pipeline import COSMOInspiredPipeline
     from evals.reproducibility import ReproducibilityEval
@@ -219,7 +267,7 @@ def _eval_reproducibility(params: dict | None, threshold: float) -> dict:
     return _eval_result_to_dict(evaluator.evaluate(pipeline_callable, n_runs=5, top_k=20, threshold=threshold))
 
 
-def _eval_hallucination_detection(params: dict | None, threshold: float) -> dict:
+def _eval_hallucination_detection(params: dict | None, threshold: float, intent_id: str | None = None) -> dict:
     """Verify cited PubMed IDs in interpretations (evals.HallucinationDetectionEval)."""
     from evals.hallucination_detection import HallucinationDetectionEval
 
@@ -249,7 +297,7 @@ async def _eval_adversarial_robustness(params: dict | None, threshold: float) ->
     return _eval_result_to_dict(await evaluator.evaluate(model_callable, threshold=threshold))
 
 
-def _eval_benchmark_comparison(params: dict | None, threshold: float) -> dict:
+def _eval_benchmark_comparison(params: dict | None, threshold: float, intent_id: str | None = None) -> dict:
     """Compare the agent panel to published signatures (evals.BenchmarkComparisonEval).
 
     Mirrors AssuranceLoop._run_benchmark_comparison: the evaluator hardcodes
@@ -270,12 +318,11 @@ def _eval_benchmark_comparison(params: dict | None, threshold: float) -> dict:
     }
 
 
-def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
+def _eval_mislabel_detection(params: dict | None, threshold: float, intent_id: str | None = None) -> dict:
     """Gate on label-error detection — the CLUE loop in VERIFY.
 
-    Mirrors AssuranceLoop._run_mislabel_detection (parity gap #14.2): generates
-    a synthetic cohort from the posted params, then runs the **improve** step
-    so the gate uses an *improved* detector rather than its untuned default. The
+    Generates a synthetic cohort, then runs the **improve** step so the gate
+    uses an *improved* detector rather than its untuned default. The
     ``improve_mode`` param selects the lever:
 
     * ``"threshold"`` (default) — tune the distance detector's decision
@@ -286,10 +333,11 @@ def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
 
     Set ``params["tune_detector"] = False`` to gate on the untuned detector.
 
-    Relevant params (with defaults): ``mislabel_fraction`` (0.05),
-    ``n_samples`` (80), ``n_genes_proteomics`` (2000),
-    ``n_genes_rnaseq`` (4000), ``seed`` (42), ``improve_mode`` ("threshold"),
-    ``classifier_random_state`` (42), ``train_seed_offset`` (1000).
+    The cohort's integrity-critical parameters (seed, corruption rate, size,
+    feature dimension, train-seed offset) are pinned server-side via the gate
+    policy and the ``intent_id``-derived seed — caller ``params`` are NOT
+    consulted for them (gap #5). ``improve_mode`` / ``tune_detector`` remain
+    caller-readable (gap #2 surface, not cohort shopping).
     """
     from clue.loop import tune_decision_threshold
     from core.synthetic import SyntheticCohortGenerator
@@ -297,6 +345,7 @@ def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
 
     params = params or {}
     improve_mode = str(params.get("improve_mode", "threshold"))
+    seed = _gate_seed(intent_id)
 
     if improve_mode in ("retrain", "both"):
         # Retrain lever: route through CLUELoop for one round so the disjoint
@@ -305,16 +354,16 @@ def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
 
         loop = CLUELoop(
             target_f1=threshold,
-            start_fraction=float(params.get("mislabel_fraction", 0.05)),
+            start_fraction=_GATE_CORRUPTION_RATE,
             max_fraction=1.0,
             max_rounds=1,
-            n_samples=int(params.get("n_samples", 80)),
-            n_genes_proteomics=int(params.get("n_genes_proteomics", 2000)),
-            n_genes_rnaseq=int(params.get("n_genes_rnaseq", 4000)),
-            seed=int(params.get("seed", 42)),
+            n_samples=_GATE_N_SAMPLES,
+            n_genes_proteomics=_GATE_N_GENES_PROTEOMICS,
+            n_genes_rnaseq=_GATE_N_GENES_RNASEQ,
+            seed=seed,
             improve_mode=improve_mode,
-            classifier_random_state=int(params.get("classifier_random_state", 42)),
-            train_seed_offset=int(params.get("train_seed_offset", 1000)),
+            classifier_random_state=_GATE_CLASSIFIER_RANDOM_STATE,
+            train_seed_offset=_GATE_TRAIN_SEED_OFFSET,
         )
         rnd = loop.run().rounds[0]
         score = float(rnd.retrain_f1)  # held-out classifier F1 is the headline
@@ -335,11 +384,11 @@ def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
         }
 
     generator = SyntheticCohortGenerator(
-        n_samples=int(params.get("n_samples", 80)),
-        n_genes_proteomics=int(params.get("n_genes_proteomics", 2000)),
-        n_genes_rnaseq=int(params.get("n_genes_rnaseq", 4000)),
-        mislabel_fraction=float(params.get("mislabel_fraction", 0.05)),
-        seed=int(params.get("seed", 42)),
+        n_samples=_GATE_N_SAMPLES,
+        n_genes_proteomics=_GATE_N_GENES_PROTEOMICS,
+        n_genes_rnaseq=_GATE_N_GENES_RNASEQ,
+        mislabel_fraction=_GATE_CORRUPTION_RATE,
+        seed=seed,
     )
     cohort = generator.generate_cohort()
 
@@ -363,24 +412,24 @@ def _eval_mislabel_detection(params: dict | None, threshold: float) -> dict:
     }
 
 
-def _eval_fidelity_gate(params: dict | None, threshold: float) -> dict:
+def _eval_fidelity_gate(params: dict | None, threshold: float, intent_id: str | None = None) -> dict:
     """Gate cohort fidelity — stage ② (detectable-by-construction).
 
-    Generates a synthetic cohort from the posted params and checks that its
-    planted molecular swaps separate from clean samples on the threshold-free
-    cross-omics AUROC (``evals.fidelity_gate.FidelityGateEval``). This is the
-    construction-validity check that should clear *before* the stage-③
-    mislabel-detection measurement is trusted: a cohort that fails here carries
-    no signal for a detector to find, so any F1 measured on it is meaningless.
+    Generates a synthetic cohort and checks that its planted molecular swaps
+    separate from clean samples on the threshold-free cross-omics AUROC
+    (``evals.fidelity_gate.FidelityGateEval``). This is the construction-validity
+    check that should clear *before* the stage-③ mislabel-detection measurement
+    is trusted: a cohort that fails here carries no signal for a detector to
+    find, so any F1 measured on it is meaningless.
 
     The gate uses the same detector invocation as ``mislabel_detection`` but no
     decision threshold — ``threshold`` here is the minimum acceptable AUROC
     (default 0.80 when the gate is called with the assurance default of 0.0).
 
-    Relevant params (with defaults): ``mislabel_fraction`` (0.30 — enough
-    injected swaps to verify), ``n_samples`` (80), ``n_genes_proteomics``
-    (2000), ``n_genes_rnaseq`` (4000), ``seed`` (42),
-    ``distance_method`` ("expression_rank").
+    The cohort's integrity-critical parameters (seed, corruption rate, size,
+    feature dimension, distance method) are pinned server-side via the gate
+    policy and the ``intent_id``-derived seed — caller ``params`` are NOT
+    consulted for them (gap #5).
     """
     from core.synthetic import SyntheticCohortGenerator
     from evals.fidelity_gate import DEFAULT_AUROC_THRESHOLD, FidelityGateEval
@@ -391,16 +440,16 @@ def _eval_fidelity_gate(params: dict | None, threshold: float) -> dict:
     auroc_threshold = threshold if threshold > 0.0 else DEFAULT_AUROC_THRESHOLD
 
     generator = SyntheticCohortGenerator(
-        n_samples=int(params.get("n_samples", 80)),
-        n_genes_proteomics=int(params.get("n_genes_proteomics", 2000)),
-        n_genes_rnaseq=int(params.get("n_genes_rnaseq", 4000)),
-        mislabel_fraction=float(params.get("mislabel_fraction", 0.30)),
-        seed=int(params.get("seed", 42)),
+        n_samples=_GATE_N_SAMPLES,
+        n_genes_proteomics=_GATE_N_GENES_PROTEOMICS,
+        n_genes_rnaseq=_GATE_N_GENES_RNASEQ,
+        mislabel_fraction=_GATE_CORRUPTION_RATE,
+        seed=_gate_seed(intent_id),
     )
     result = FidelityGateEval().evaluate(
         generator.generate_cohort(),
         threshold=auroc_threshold,
-        distance_method=str(params.get("distance_method", "expression_rank")),
+        distance_method=_GATE_DISTANCE_METHOD,
     )
     return _eval_result_to_dict(result)
 
@@ -432,7 +481,7 @@ async def evaluate(params: EvaluateModelInput) -> dict:
 
     runner = _SYNC_EVAL_RUNNERS.get(eval_name) if eval_name else None
     if runner is not None:
-        return runner(params.params, params.threshold)
+        return runner(params.params, params.threshold, params.intent_id)
 
     # eval_name is None or unknown — legacy COSMO pipeline eval.
     from core.pipeline import COSMOInspiredPipeline
