@@ -140,7 +140,8 @@ type IntentSpec struct {
 }
 
 // IntentSpecs is the registry of supported intent types, keyed by intent_type.
-// Mirrors INTENT_SPECS in intents/types.py.
+// It is the source of truth for intent specs; the former Python
+// intents/types.py INTENT_SPECS it once mirrored has been decommissioned.
 var IntentSpecs = map[string]IntentSpec{
 	"analysis": {
 		IntentType:    "analysis",
@@ -152,16 +153,31 @@ var IntentSpecs = map[string]IntentSpec{
 		ValidationGateStage: 2,
 	},
 	"training": {
-		IntentType:     "training",
-		RequiredInfra:  []string{"vertex_ai_job", "gpu_allocated"},
-		EvalCriteria:   []EvalCriterion{},
+		IntentType:    "training",
+		RequiredInfra: []string{"vertex_ai_job", "gpu_allocated"},
+		// Pre-deploy release gate. A trained model auto-deploys (TriggersDeploy)
+		// only after the evals that probe the fine-tuned SLM directly pass:
+		// hallucination_detection verifies cited evidence is real, and
+		// adversarial_robustness verifies the model resists defensive probes.
+		// Without these the deploy fired on mere job completion. NOTE: these
+		// require the SLM to be configured/reachable at VERIFY; if it is not,
+		// adversarial_robustness errors and the intent fails closed (no deploy).
+		EvalCriteria: []EvalCriterion{
+			{Name: "hallucination_detection", Threshold: 0.90},
+			{Name: "adversarial_robustness", Threshold: 1.0},
+		},
 		MaxGPUCount:    4,
 		TriggersDeploy: true,
 	},
 	"validation": {
 		IntentType:    "validation",
 		RequiredInfra: []string{},
+		// Cross-omics concordance gate. The CLUE detection-fidelity evals lead
+		// — fidelity_gate (stage ②, threshold-free AUROC) then mislabel_detection
+		// (stage ③, tuned F1) — followed by the LLM-output checks.
 		EvalCriteria: []EvalCriterion{
+			{Name: "fidelity_gate", Threshold: 0.80},
+			{Name: "mislabel_detection", Threshold: 0.70},
 			{Name: "hallucination_detection", Threshold: 0.90},
 			{Name: "adversarial_robustness", Threshold: 1.0},
 		},

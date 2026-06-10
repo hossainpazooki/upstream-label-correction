@@ -91,26 +91,45 @@ func TestIntentSpecsRegistry(t *testing.T) {
 	if training.MaxGPUCount != 4 {
 		t.Errorf("training MaxGPUCount = %d, want 4", training.MaxGPUCount)
 	}
-	if len(training.EvalCriteria) != 0 {
-		t.Errorf("training should have no eval criteria, got %d", len(training.EvalCriteria))
-	}
+	// Training gates its auto-deploy on the evals that probe the fine-tuned SLM.
+	assertCriteria(t, "training", training.EvalCriteria, map[string]float64{
+		"hallucination_detection": 0.90,
+		"adversarial_robustness":  1.0,
+	})
 
 	analysis := IntentSpecs["analysis"]
-	wantThresholds := map[string]float64{"biological_validity": 0.60, "reproducibility": 0.85}
-	if len(analysis.EvalCriteria) != len(wantThresholds) {
-		t.Fatalf("analysis should have %d eval criteria, got %d", len(wantThresholds), len(analysis.EvalCriteria))
-	}
-	for _, c := range analysis.EvalCriteria {
-		want, ok := wantThresholds[c.Name]
-		if !ok {
-			t.Errorf("unexpected analysis criterion %q", c.Name)
-		} else if want != c.Threshold {
-			t.Errorf("analysis criterion %q threshold = %v, want %v", c.Name, c.Threshold, want)
-		}
-	}
+	assertCriteria(t, "analysis", analysis.EvalCriteria, map[string]float64{
+		"biological_validity": 0.60,
+		"reproducibility":     0.85,
+	})
 
-	if infra := IntentSpecs["validation"].RequiredInfra; len(infra) != 0 {
+	// Validation leads with the CLUE detection-fidelity evals, then the LLM checks.
+	validation := IntentSpecs["validation"]
+	assertCriteria(t, "validation", validation.EvalCriteria, map[string]float64{
+		"fidelity_gate":           0.80,
+		"mislabel_detection":      0.70,
+		"hallucination_detection": 0.90,
+		"adversarial_robustness":  1.0,
+	})
+	if infra := validation.RequiredInfra; len(infra) != 0 {
 		t.Errorf("validation should need no infra, got %v", infra)
+	}
+}
+
+// assertCriteria checks an intent's eval criteria match the expected
+// name→threshold set exactly (no missing, extra, or mismatched entries).
+func assertCriteria(t *testing.T, intentType string, got []EvalCriterion, want map[string]float64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s should have %d eval criteria, got %d", intentType, len(want), len(got))
+	}
+	for _, c := range got {
+		w, ok := want[c.Name]
+		if !ok {
+			t.Errorf("unexpected %s criterion %q", intentType, c.Name)
+		} else if w != c.Threshold {
+			t.Errorf("%s criterion %q threshold = %v, want %v", intentType, c.Name, c.Threshold, w)
+		}
 	}
 }
 

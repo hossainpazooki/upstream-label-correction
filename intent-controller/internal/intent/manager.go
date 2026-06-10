@@ -239,15 +239,8 @@ func (m *Manager) verify(ctx context.Context, intent *models.Intent) error {
 	spec := models.IntentSpecs[intent.IntentType]
 
 	if len(spec.EvalCriteria) == 0 {
-		// No eval criteria — achieved by completion
-		if err := m.transition(ctx, intent, models.IntentStatusAchieved); err != nil {
-			return err
-		}
-		// Training intents chain to deployment
-		if spec.TriggersDeploy {
-			m.triggerDeploy(ctx, intent)
-		}
-		return nil
+		// No eval criteria — achieved by completion.
+		return m.achieve(ctx, intent, spec)
 	}
 
 	// Run eval criteria via ML service
@@ -274,7 +267,7 @@ func (m *Manager) verify(ctx context.Context, intent *models.Intent) error {
 	m.intents.Update(ctx, intent)
 
 	if allPassed {
-		return m.transition(ctx, intent, models.IntentStatusAchieved)
+		return m.achieve(ctx, intent, spec)
 	}
 
 	failedEvals := []string{}
@@ -358,6 +351,22 @@ func (m *Manager) triggerWorkflows(ctx context.Context, intent *models.Intent) (
 	}
 
 	return workflowIDs, nil
+}
+
+// achieve transitions an intent to ACHIEVED and, for deploy-triggering specs,
+// chains to model deployment. It is shared by both VERIFY success paths — the
+// no-criteria fast path and the gated all-passed path — so a TriggersDeploy
+// intent deploys only after it actually reaches ACHIEVED. Previously the deploy
+// chain lived solely in the no-criteria branch, so adding eval criteria to a
+// deploy-triggering intent would have silently dropped the deploy.
+func (m *Manager) achieve(ctx context.Context, intent *models.Intent, spec models.IntentSpec) error {
+	if err := m.transition(ctx, intent, models.IntentStatusAchieved); err != nil {
+		return err
+	}
+	if spec.TriggersDeploy {
+		m.triggerDeploy(ctx, intent)
+	}
+	return nil
 }
 
 // triggerDeploy chains a training intent's success to model deployment.
