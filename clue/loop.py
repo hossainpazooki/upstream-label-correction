@@ -112,6 +112,43 @@ def tune_decision_threshold(
     return best_threshold, best_metrics
 
 
+def select_threshold_holdout(
+    tune_cohort: dict,
+    measure_cohort: dict,
+    candidates: tuple[float, ...] = DEFAULT_THRESHOLDS,
+    distance_method: str = "expression_rank",
+) -> tuple[float, dict, dict]:
+    """Threshold selection WITHOUT selection-on-the-graded-cohort (gap #2 helper).
+
+    :func:`tune_decision_threshold` picks the threshold that maximises F1 *and*
+    reports that maximum on the very cohort it tuned on — an in-sample number
+    inflated by selecting on the data it is then scored against. This variant
+    selects the threshold on ``tune_cohort`` and applies that **fixed** threshold
+    to the disjoint ``measure_cohort``, so the measure F1 took no part in
+    threshold selection.
+
+    Honest scope (verified adversarially): this removes the *per-cohort-noise*
+    overfit, but it does NOT make the number fully out-of-sample.
+    :class:`~core.synthetic.SyntheticCohortGenerator` plants the **same signal
+    geometry for every seed** (identical label-block order and positional
+    swap-type cycle); a disjoint seed only redraws expression noise and which
+    indices are swapped, so the tune cohort is a structurally-identical sibling.
+    The residual *shared-generator-structure* optimism is the no-held-out-oracle
+    problem tracked as gap #1 — it cannot be closed by a sibling synthetic cohort
+    and needs a genuinely independent oracle (e.g. real held-out data).
+
+    Returns ``(threshold, measure_metrics, tune_metrics)``.
+    """
+    threshold, tune_metrics = tune_decision_threshold(tune_cohort, candidates, distance_method)
+
+    # Apply the already-chosen threshold to the held-out measure cohort.
+    frequencies, shared_samples = mismatch_frequencies(measure_cohort, distance_method)
+    mislabel_type = measure_cohort["ground_truth"].get("mislabel_type", {})
+    flagged = {sid for sid, freq in frequencies.items() if freq > threshold}
+    measure_metrics = score_molecular_detection(flagged, mislabel_type, shared_samples)
+    return threshold, measure_metrics, tune_metrics
+
+
 def build_classifier_xy(
     cohort: dict,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

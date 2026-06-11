@@ -350,7 +350,15 @@ def _eval_mislabel_detection(params: dict | None, threshold: float, intent_id: s
     ``improve_mode`` param selects the lever:
 
     * ``"threshold"`` (default) — tune the distance detector's decision
-      threshold (``tune_decision_threshold``).
+      threshold (``tune_decision_threshold``). The gated score is the
+      **in-sample** tuned F1 (the threshold is selected on the cohort it is then
+      scored against — gap #2). For transparency the response also reports a
+      **held-out** F1 (threshold chosen on a disjoint sibling cohort, applied to
+      the measure cohort) and the in-sample−held-out delta, so the optimism is
+      visible. Gating still keys on the in-sample F1 here (no behavior change);
+      switching the gate to the held-out number — and breaking the residual
+      shared-generator-structure optimism with a genuinely independent oracle —
+      is folded into gap #1 (no-held-out-oracle), which this surface depends on.
     * ``"retrain"`` — retrain the classification-path ensemble on a disjoint
       train cohort and gate on its held-out F1 (no leakage).
     * ``"both"`` — do both; gate on the held-out retrain F1, report threshold F1.
@@ -360,10 +368,9 @@ def _eval_mislabel_detection(params: dict | None, threshold: float, intent_id: s
     The cohort's integrity-critical parameters (seed, corruption rate, size,
     feature dimension, train-seed offset) are pinned server-side via the gate
     policy and the ``intent_id``-derived seed — caller ``params`` are NOT
-    consulted for them (gap #5). ``improve_mode`` / ``tune_detector`` remain
-    caller-readable (gap #2 surface, not cohort shopping).
+    consulted for them (gap #5).
     """
-    from clue.loop import tune_decision_threshold
+    from clue.loop import select_threshold_holdout, tune_decision_threshold
     from core.synthetic import SyntheticCohortGenerator
     from evals.mislabel_detection import MislabelDetectionEval
 
@@ -407,17 +414,19 @@ def _eval_mislabel_detection(params: dict | None, threshold: float, intent_id: s
             },
         }
 
-    generator = SyntheticCohortGenerator(
-        n_samples=_GATE_N_SAMPLES,
-        n_genes_proteomics=_GATE_N_GENES_PROTEOMICS,
-        n_genes_rnaseq=_GATE_N_GENES_RNASEQ,
-        mislabel_fraction=_GATE_CORRUPTION_RATE,
-        seed=seed,
-    )
-    cohort = generator.generate_cohort()
+    def _gate_cohort(cohort_seed: int) -> dict:
+        return SyntheticCohortGenerator(
+            n_samples=_GATE_N_SAMPLES,
+            n_genes_proteomics=_GATE_N_GENES_PROTEOMICS,
+            n_genes_rnaseq=_GATE_N_GENES_RNASEQ,
+            mislabel_fraction=_GATE_CORRUPTION_RATE,
+            seed=cohort_seed,
+        ).generate_cohort()
+
+    measure_cohort = _gate_cohort(seed)
 
     if not params.get("tune_detector", True):
-        result = MislabelDetectionEval().evaluate(cohort, threshold=threshold)
+        result = MislabelDetectionEval().evaluate(measure_cohort, threshold=threshold)
         return {
             "name": result.name,
             "passed": result.passed,
@@ -426,13 +435,31 @@ def _eval_mislabel_detection(params: dict | None, threshold: float, intent_id: s
             "details": result.details,
         }
 
-    best_threshold, metrics = tune_decision_threshold(cohort)
+    # In-sample tuned F1 — the gated score (UNCHANGED behavior, gap #2 deferred).
+    best_threshold, metrics = tune_decision_threshold(measure_cohort)
+    # Held-out F1 for transparency: select tau on a DISJOINT sibling cohort and
+    # apply it to the measure cohort. This exposes the selection optimism but is
+    # NOT the gate's decision — flipping the gate to this number (and removing
+    # the residual shared-generator-structure optimism with a real held-out
+    # oracle) is gap #1's work. select_threshold_holdout documents that scope.
+    tune_seed = seed + _GATE_TRAIN_SEED_OFFSET
+    held_threshold, held_metrics, _ = select_threshold_holdout(_gate_cohort(tune_seed), measure_cohort)
     return {
         "name": "mislabel_detection",
         "passed": metrics["f1"] >= threshold,
         "score": metrics["f1"],
         "threshold": threshold,
-        "details": {**metrics, "best_threshold": best_threshold, "tuned": True},
+        "details": {
+            **metrics,
+            "best_threshold": best_threshold,
+            "tuned": True,
+            "selection": "in_sample",
+            "in_sample_f1": metrics["f1"],
+            "held_out_f1": held_metrics["f1"],
+            "in_sample_minus_held_out": metrics["f1"] - held_metrics["f1"],
+            "held_out_threshold": held_threshold,
+            "tune_seed": tune_seed,
+        },
     }
 
 

@@ -42,7 +42,7 @@ class TestMislabelDetectionRouting:
     """Integration coverage for the /ml/evaluate mislabel_detection route + improve_mode."""
 
     def test_default_routes_to_threshold_path(self, monkeypatch, small_gate):
-        """No improve_mode -> tuned distance threshold (byte-identical default contract)."""
+        """No improve_mode -> tuned distance threshold; gated score stays in-sample."""
         from fastapi.testclient import TestClient
 
         from ml_service.main import app
@@ -58,13 +58,19 @@ class TestMislabelDetectionRouting:
         assert response.status_code == 200
         body = response.json()
         assert body["name"] == "mislabel_detection"
+        # The GATE still keys on the in-sample tuned F1 (gap #2 deferred to #1).
         assert body["score"] == 1.0
         assert body["passed"] is True
-        # The default path reports the tuned threshold and tags itself, unchanged.
-        assert body["details"]["best_threshold"] == 0.5
-        assert body["details"]["tuned"] is True
-        # Retrain-only keys must NOT leak into the default contract.
-        assert "improve_mode" not in body["details"]
+        d = body["details"]
+        assert d["best_threshold"] == 0.5
+        assert d["tuned"] is True
+        assert "improve_mode" not in d  # retrain-only key must not leak in
+        # gap #2 honest framing: the in-sample gated score is labelled as such and
+        # a held-out F1 is reported alongside for transparency.
+        assert d["selection"] == "in_sample"
+        assert d["in_sample_f1"] == 1.0
+        assert "held_out_f1" in d and 0.0 <= d["held_out_f1"] <= 1.0
+        assert d["in_sample_minus_held_out"] == d["in_sample_f1"] - d["held_out_f1"]
 
     def test_retrain_routes_to_held_out_classifier_f1(self, monkeypatch, small_gate):
         """improve_mode=retrain -> score is the held-out retrain F1, details name the lever.

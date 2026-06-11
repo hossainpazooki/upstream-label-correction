@@ -23,6 +23,7 @@ from clue.loop import (  # noqa: E402
     LoopResult,
     RoundResult,
     build_classifier_xy,
+    select_threshold_holdout,
     tune_decision_threshold,
 )
 
@@ -32,6 +33,28 @@ SMALL = dict(n_samples=30, n_genes_proteomics=150, n_genes_rnaseq=200)
 
 def _cohort(fraction=0.20, seed=7):
     return SyntheticCohortGenerator(mislabel_fraction=fraction, seed=seed, **SMALL).generate_cohort()
+
+
+def test_select_threshold_holdout_selects_on_tune_scores_on_measure():
+    """Held-out helper picks tau on the tune cohort and scores the disjoint measure cohort."""
+    measure = _cohort(seed=7)
+    tune = _cohort(seed=7 + 1000)
+
+    threshold, measure_metrics, tune_metrics = select_threshold_holdout(tune, measure)
+
+    # The selected threshold is the argmax on the TUNE cohort, not the measure cohort.
+    tune_threshold, expected_tune_metrics = tune_decision_threshold(tune)
+    assert threshold == tune_threshold
+    assert tune_metrics["f1"] == expected_tune_metrics["f1"]
+
+    # measure_metrics is that fixed threshold applied to the held-out measure cohort.
+    flagged, shared = detect_molecular_mismatches(measure, flag_threshold=threshold)
+    expected = score_molecular_detection(flagged, measure["ground_truth"]["mislabel_type"], shared)
+    assert measure_metrics["f1"] == expected["f1"]
+
+    # Deterministic per seed.
+    again = select_threshold_holdout(_cohort(seed=7 + 1000), _cohort(seed=7))
+    assert again[0] == threshold and again[1]["f1"] == measure_metrics["f1"]
 
 
 def test_tune_is_never_worse_than_default_threshold():
