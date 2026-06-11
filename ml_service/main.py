@@ -106,11 +106,7 @@ _AUTH_EXEMPT_PATHS = frozenset({"/health"})
 
 @app.middleware("http")
 async def _service_auth(request: Request, call_next):
-    if (
-        _SERVICE_AUTH_TOKEN
-        and request.method != "OPTIONS"
-        and request.url.path not in _AUTH_EXEMPT_PATHS
-    ):
+    if _SERVICE_AUTH_TOKEN and request.method != "OPTIONS" and request.url.path not in _AUTH_EXEMPT_PATHS:
         presented = request.headers.get("x-service-token", "")
         if not hmac.compare_digest(presented, _SERVICE_AUTH_TOKEN):
             return JSONResponse(status_code=401, content={"error": "unauthorized"})

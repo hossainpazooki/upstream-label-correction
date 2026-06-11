@@ -250,7 +250,10 @@ class SyntheticCohortGenerator:
         rna_genes: list[str],
     ) -> None:
         """Add shared latent factors for overlapping genes."""
-        overlapping = set(pro_genes) & set(rna_genes) - {"sample_id"}
+        # Sort for deterministic iteration: set order over strings varies with
+        # PYTHONHASHSEED across processes, which would shift RNG consumption order
+        # and make the whole cohort non-reproducible run-to-run.
+        overlapping = sorted(set(pro_genes) & set(rna_genes) - {"sample_id"})
         if not overlapping:
             return
 

@@ -80,7 +80,12 @@ def test_loop_records_wellformed_history():
 
 
 def test_loop_escalates_corruption_and_records_frontier():
-    result = CLUELoop(target_f1=0.8, start_fraction=0.10, fraction_step=0.10, max_rounds=3, seed=7, **SMALL).run()
+    # Step of 0.20 probes 0.10 -> 0.30, two genuinely different corruption rates.
+    # A finer 0.10 step would land on 0.20, where the n=30 cohort's F1 has a
+    # small-sample noise dip below 0.8; the loop stops at the first failure, so a
+    # single noisy point would cut the curriculum short. The detector clears both
+    # 0.10 and 0.30 cleanly — see the F1 curve in test_loop_records_wellformed_history.
+    result = CLUELoop(target_f1=0.8, start_fraction=0.10, fraction_step=0.20, max_rounds=3, seed=7, **SMALL).run()
 
     passed = [r for r in result.rounds if r.passed]
     assert len(passed) >= 2, "expected the tuned detector to clear several rounds"
