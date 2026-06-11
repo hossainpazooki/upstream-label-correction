@@ -25,9 +25,10 @@ type Deployer interface {
 
 // Dispatcher sends activity requests to the Python ML service over HTTP.
 type Dispatcher struct {
-	mlURL    string
-	client   *http.Client
-	deployer Deployer
+	mlURL     string
+	client    *http.Client
+	deployer  Deployer
+	authToken string
 }
 
 // NewDispatcher creates a new activity dispatcher with the default (real)
@@ -48,6 +49,13 @@ func (d *Dispatcher) SetDeployer(dep Deployer) {
 	d.deployer = dep
 }
 
+// SetAuthToken sets the shared service token attached to outbound ML calls as
+// the X-Service-Token header. An empty token (the default) sends no header,
+// which keeps local dev and tests working against an unauthenticated ml_service.
+func (d *Dispatcher) SetAuthToken(token string) {
+	d.authToken = token
+}
+
 // CallML sends a POST request to the ML service and returns the response.
 func (d *Dispatcher) CallML(ctx context.Context, path string, body map[string]interface{}) (map[string]interface{}, error) {
 	jsonBody, err := json.Marshal(body)
@@ -61,6 +69,9 @@ func (d *Dispatcher) CallML(ctx context.Context, path string, body map[string]in
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if d.authToken != "" {
+		req.Header.Set("X-Service-Token", d.authToken)
+	}
 
 	slog.Debug("calling ML service", "url", url)
 

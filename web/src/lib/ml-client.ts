@@ -5,6 +5,17 @@
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000";
 
+// Shared service token for the internal control plane (gap #8). Server-only —
+// never a NEXT_PUBLIC_ var. Attached to every ml_service call as X-Service-Token
+// when set; unset (local dev) sends no header and ml_service runs in bypass.
+const SERVICE_AUTH_TOKEN = process.env.SERVICE_AUTH_TOKEN;
+
+export function mlHeaders(base: Record<string, string> = {}): Record<string, string> {
+  return SERVICE_AUTH_TOKEN
+    ? { ...base, "X-Service-Token": SERVICE_AUTH_TOKEN }
+    : base;
+}
+
 export class MLServiceError extends Error {
   constructor(
     public status: number,
@@ -18,7 +29,7 @@ export class MLServiceError extends Error {
 async function mlFetch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${ML_SERVICE_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: mlHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -29,7 +40,9 @@ async function mlFetch<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function mlGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${ML_SERVICE_URL}${path}`);
+  const res = await fetch(`${ML_SERVICE_URL}${path}`, {
+    headers: mlHeaders(),
+  });
   if (!res.ok) {
     const text = await res.text();
     throw new MLServiceError(res.status, text);

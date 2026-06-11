@@ -25,11 +25,20 @@ services and Vertex AI — all defined in `infra-ts/index.ts`.
 > `ML_SERVICE_URL` (the `precision-genomics-ml` URL). The `web` service is given
 > `INTENT_CONTROLLER_URL` to proxy intent/workflow ops to it. It is a singleton
 > (`max 1`); the cross-replica claim/lease (durability "step 3") makes scaling
-> past 1 safe if request load ever requires it. Two known follow-ups, shared with
-> `ml`: (1) the DB password lands as a plain Cloud Run env via `DATABASE_URL`
-> rather than a Secret-Manager-injected secret — harden by storing the assembled
-> URL in Secret Manager; (2) internal services have no service-account
-> `run.invoker` bindings yet, so `web → intent`/`ml` calls rely on VPC reachability.
+> past 1 safe if request load ever requires it. One known follow-up, shared with
+> `ml`: the DB password lands as a plain Cloud Run env via `DATABASE_URL` rather
+> than a Secret-Manager-injected secret — harden by storing the assembled URL in
+> Secret Manager.
+
+> **Control-plane auth (gap #8).** The internal services are no longer open at
+> the app layer. A shared `SERVICE_AUTH_TOKEN` (Secret Manager) is injected into
+> all services; the controller's `/api/v1/*` routes and every `ml_service`
+> endpoint (except health) require it via the `X-Service-Token` header, which the
+> controller's dispatcher and web's server-side clients attach. `intent` and `ml`
+> are also set to `ingress=INTERNAL_ONLY`, and the public web edge enforces
+> `REQUIRE_AUTH=true` + `API_KEYS` on `/api/*`. Remaining hardening (follow-up):
+> swap the shared token for GCP OIDC / `run.invoker` IAM bindings — the same
+> middleware seam validates an OIDC token instead of a static one.
 
 Backing services: Cloud SQL (PostgreSQL), Memorystore Redis, 3 GCS buckets,
 Artifact Registry (`precision-genomics`), Secret Manager
@@ -70,6 +79,11 @@ npm ci
 # Configure secrets on the stack (first time only)
 pulumi config set --secret anthropicApiKey <ANTHROPIC_API_KEY>
 pulumi config set --secret dbPassword <DB_PASSWORD>
+# gap #8 auth — REQUIRED (config.ts requireSecret; pulumi up fails without them):
+#   service_auth_token: shared internal token (controller <-> ml, web -> both)
+#   web_api_keys: comma-separated API key(s) the public web edge accepts
+pulumi config set --secret service_auth_token <RANDOM_HIGH_ENTROPY_TOKEN>
+pulumi config set --secret web_api_keys <KEY1,KEY2>
 
 # Preview and apply
 pulumi preview --stack dev

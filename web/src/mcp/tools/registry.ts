@@ -66,7 +66,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
       const ML_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000";
       const res = await fetch(`${ML_URL}/ml/availability`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: mlClient.mlHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(input),
       });
       return res.json();
@@ -122,7 +122,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
       const ML_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000";
       const res = await fetch(`${ML_URL}/ml/explain`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: mlClient.mlHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(input),
       });
       return res.json();
@@ -138,7 +138,7 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
       const ML_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000";
       const res = await fetch(`${ML_URL}/ml/explain-local`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: mlClient.mlHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(input),
       });
       return res.json();

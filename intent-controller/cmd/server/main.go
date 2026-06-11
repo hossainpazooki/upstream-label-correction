@@ -25,6 +25,11 @@ func main() {
 	port := envOr("PORT", "8090")
 	dbURL := envOr("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/precision_genomics")
 	mlURL := envOr("ML_SERVICE_URL", "http://localhost:8000")
+	// Shared service token for the control plane (gap #8). When set, inbound
+	// /api/v1/* requests must present it and outbound ML calls carry it; when
+	// empty (local dev / tests) auth is disabled on both edges.
+	authToken := envOr("SERVICE_AUTH_TOKEN", "")
+	slog.Info("control-plane auth", "enabled", authToken != "")
 
 	// Stable per-replica worker identity for cross-replica CLAIM/LEASE. Multiple
 	// replicas must have distinct ids so neither double-processes an intent nor
@@ -56,6 +61,7 @@ func main() {
 
 	// Activity dispatcher
 	dispatcher := activity.NewDispatcher(mlURL)
+	dispatcher.SetAuthToken(authToken)
 
 	// Workflow engine
 	engine := workflow.NewEngine(workflowRepo, dispatcher)
@@ -94,7 +100,7 @@ func main() {
 	go reconciler.Run(ctx)
 
 	// HTTP server
-	router := api.NewRouter(manager, engine, intentRepo, workflowRepo)
+	router := api.NewRouter(manager, engine, intentRepo, workflowRepo, authToken)
 
 	srv := &http.Server{
 		Addr:         ":" + port,

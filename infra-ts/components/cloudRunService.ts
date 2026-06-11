@@ -20,6 +20,10 @@ export interface CloudRunServiceArgs {
   secrets?: Record<string, pulumi.Input<string>>;
   timeout?: string;
   allowUnauthenticated?: boolean;
+  // Cloud Run ingress. Omit for the platform default (all). Set
+  // "INGRESS_TRAFFIC_INTERNAL_ONLY" for internal services so they are reachable
+  // only from within the VPC / load balancer, not the public internet.
+  ingress?: string;
 }
 
 export class CloudRunService extends pulumi.ComponentResource {
@@ -58,6 +62,7 @@ export class CloudRunService extends pulumi.ComponentResource {
       name,
       project: args.projectId,
       location: args.region,
+      ingress: args.ingress,
       template: {
         containers: [
           {

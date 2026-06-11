@@ -6,6 +6,12 @@
 const INTENT_CONTROLLER_URL =
   process.env.INTENT_CONTROLLER_URL ?? "http://localhost:8090";
 
+// Shared service token for the internal control plane (gap #8). Server-only —
+// must NOT be a NEXT_PUBLIC_ var, so it never reaches the browser bundle. When
+// set, it is attached to every controller call as X-Service-Token; when unset
+// (local dev), no header is sent and the controller runs in bypass mode.
+const SERVICE_AUTH_TOKEN = process.env.SERVICE_AUTH_TOKEN;
+
 export class IntentControllerError extends Error {
   constructor(
     public status: number,
@@ -21,8 +27,12 @@ async function intentFetch<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const res = await fetch(`${INTENT_CONTROLLER_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(SERVICE_AUTH_TOKEN ? { "X-Service-Token": SERVICE_AUTH_TOKEN } : {}),
+      ...options.headers,
+    },
   });
   if (!res.ok) {
     const text = await res.text();

@@ -14,6 +14,9 @@ export interface InfraConfig {
   anthropicApiKey: pulumi.Output<string>;
   experimentName: string;
   modelImageTag: string;
+  // gap #8: shared internal service token + the public web edge's API keys.
+  serviceAuthToken: pulumi.Output<string>;
+  webApiKeys: pulumi.Output<string>;
 }
 
 export function loadConfig(): InfraConfig {
@@ -29,5 +32,7 @@ export function loadConfig(): InfraConfig {
     anthropicApiKey: cfg.requireSecret("anthropic_api_key"),
     experimentName: cfg.get("experiment_name") ?? "precision-genomics",
     modelImageTag: cfg.get("modelImageTag") ?? "latest",
+    serviceAuthToken: cfg.requireSecret("service_auth_token"),
+    webApiKeys: cfg.requireSecret("web_api_keys"),
   };
 }

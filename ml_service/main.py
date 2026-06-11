@@ -22,10 +22,13 @@ Endpoints:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
+import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -91,6 +94,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Shared service-token auth (gap #8). When SERVICE_AUTH_TOKEN is set, every
+# request except the health probe must present a matching X-Service-Token header
+# (the controller's dispatcher and web's server-side clients send it). When the
+# env var is unset — local dev and tests — the check is a no-op. The token is
+# read at module load; tests monkeypatch ``_SERVICE_AUTH_TOKEN`` to exercise it.
+_SERVICE_AUTH_TOKEN = os.environ.get("SERVICE_AUTH_TOKEN", "")
+_AUTH_EXEMPT_PATHS = frozenset({"/health"})
+
+
+@app.middleware("http")
+async def _service_auth(request: Request, call_next):
+    if (
+        _SERVICE_AUTH_TOKEN
+        and request.method != "OPTIONS"
+        and request.url.path not in _AUTH_EXEMPT_PATHS
+    ):
+        presented = request.headers.get("x-service-token", "")
+        if not hmac.compare_digest(presented, _SERVICE_AUTH_TOKEN):
+            return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    return await call_next(request)
 
 
 @app.get("/health")

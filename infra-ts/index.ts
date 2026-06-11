@@ -39,6 +39,8 @@ const secrets = new SecretStore("secrets", {
   projectId: cfg.projectId,
   anthropicApiKey: cfg.anthropicApiKey,
   dbPassword: cfg.dbPassword,
+  serviceAuthToken: cfg.serviceAuthToken,
+  webApiKeys: cfg.webApiKeys,
 });
 
 // --- Database (depends on networking) ---
@@ -68,11 +70,22 @@ const commonEnv: Record<string, pulumi.Input<string>> = {
 
 const commonSecrets: Record<string, pulumi.Input<string>> = {
   ANTHROPIC_API_KEY: secrets.anthropicKeySecretId,
+  // Shared internal service token (gap #8): injected into every service so the
+  // controller's dispatcher and web's server-side clients can present it and the
+  // controller + ml_service can enforce it.
+  SERVICE_AUTH_TOKEN: secrets.serviceAuthTokenSecretId,
 };
 
 const dataServiceSecrets: Record<string, pulumi.Input<string>> = {
   ...commonSecrets,
   DATABASE_PASSWORD: secrets.dbPasswordSecretId,
+};
+
+// The public web edge additionally gets the API keys it checks when REQUIRE_AUTH
+// is on (gap #8: close the only internet-facing door into the control plane).
+const webSecrets: Record<string, pulumi.Input<string>> = {
+  ...commonSecrets,
+  API_KEYS: secrets.webApiKeysSecretId,
 };
 
 const redisUrl = pulumi.interpolate`redis://${cache.host}:${cache.port}/0`;
@@ -89,6 +102,10 @@ const mlService = new CloudRunService("precision-genomics-ml", {
   minInstances: 0,
   maxInstances: 5,
   vpcConnectorId: networking.vpcConnectorId,
+  // Internal-only: ml_service is never called from the public internet, only by
+  // the controller and web over the VPC connector (defense-in-depth alongside
+  // the SERVICE_AUTH_TOKEN check).
+  ingress: "INGRESS_TRAFFIC_INTERNAL_ONLY",
   envVars: {
     ...commonEnv,
     REDIS_URL: redisUrl,
@@ -124,6 +141,9 @@ const intentService = new CloudRunService("precision-genomics-intent", {
   minInstances: 1,
   maxInstances: 1,
   vpcConnectorId: networking.vpcConnectorId,
+  // Internal-only: the controller drives `pulumi up`; it must never be reachable
+  // from the public internet. Fronted by web over the VPC connector.
+  ingress: "INGRESS_TRAFFIC_INTERNAL_ONLY",
   envVars: {
     ...commonEnv,
     DATABASE_URL: intentDatabaseUrl,
@@ -151,8 +171,11 @@ const webService = new CloudRunService("precision-genomics-web", {
     CLOUD_SQL_INSTANCE: database.connectionName,
     ML_SERVICE_URL: mlService.url,
     INTENT_CONTROLLER_URL: intentService.url,
+    // Close the only internet-facing door (gap #8): the web middleware enforces
+    // an API key / JWT on /api/* when this is "true". API_KEYS is injected below.
+    REQUIRE_AUTH: "true",
   },
-  secrets: commonSecrets,
+  secrets: webSecrets,
   allowUnauthenticated: true,
 });
 
