@@ -38,10 +38,12 @@ class TestFidelityGateRouting:
     """Integration coverage for the /ml/evaluate fidelity_gate route."""
 
     def test_routes_and_scores_auroc(self, monkeypatch, small_gate):
+        """Route now runs the dual-detector gate (gap #3): both methods scored, AND-gated."""
         from fastapi.testclient import TestClient
 
         from ml_service.main import app
 
+        # Both distance methods resolve to the same mocked AUROC here.
         monkeypatch.setattr(
             "evals.fidelity_gate.fidelity_auroc",
             lambda *a, **k: (0.95, dict(_FAKE_BREAKDOWN)),
@@ -56,10 +58,14 @@ class TestFidelityGateRouting:
         assert response.status_code == 200
         body = response.json()
         assert body["name"] == "fidelity_gate"
-        assert body["score"] == 0.95
+        assert body["score"] == 0.95  # min across both detectors
         assert body["passed"] is True
-        assert body["details"]["applicable"] is True
-        assert body["details"]["auroc"] == 0.95
+        d = body["details"]
+        assert d["applicable"] is True
+        assert set(d["per_method"]) == {"expression_rank", "linear_model"}
+        assert d["per_method"]["expression_rank"]["auroc"] == 0.95
+        assert d["per_method"]["linear_model"]["auroc"] == 0.95
+        assert d["detectors_disagree"] is False
 
     def test_zero_threshold_falls_back_to_default_auroc_bar(self, monkeypatch, small_gate):
         """threshold=0.0 (assurance default) must not pass any cohort — the gate

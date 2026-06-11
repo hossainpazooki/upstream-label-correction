@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from statistics import median
 
+import numpy as np
 from sklearn.metrics import roc_auc_score
 
 from evals import EvalResult
@@ -101,6 +102,51 @@ def fidelity_auroc(
     return auroc, breakdown
 
 
+#: Two mechanically distinct distance primitives for the dual fidelity gate
+#: (gap #3): rank correlation (1-|spearman|) and the MSE-residual linear model.
+#: Their failure modes differ, so a cohort cleared by BOTH does not rest on a
+#: single detector's blind spot. Both still read the SAME synthetic matrices, so
+#: this is a *decorrelated second scorer*, NOT an external oracle — gap #1
+#: (no held-out oracle, blocked on real data) remains open.
+DEFAULT_DUAL_METHODS = ("expression_rank", "linear_model")
+
+
+def fidelity_auroc_dual(
+    cohort: dict,
+    methods: tuple[str, ...] = DEFAULT_DUAL_METHODS,
+) -> dict[str, tuple[float | None, dict]]:
+    """Score separability under each distance primitive independently.
+
+    Returns ``{method: (auroc, breakdown)}`` by calling :func:`fidelity_auroc`
+    once per method (the single-method function is reused verbatim, so each
+    score is deterministic and unchanged).
+    """
+    return {m: fidelity_auroc(cohort, distance_method=m) for m in methods}
+
+
+def generate_signal_free_cohort(cohort: dict, seed: int = 42) -> dict:
+    """Null control: destroy cross-omics concordance while keeping the swap labels.
+
+    Deterministically re-pairs each sample's RNA-Seq profile with a different
+    sample's, so no sample's two modalities agree. The planted ``ground_truth``
+    swap labels are unchanged, but the molecular signal that distinguishes
+    swapped from clean is gone — so a gate with real discriminating power must
+    DROP both detectors' AUROC below threshold rather than pass by construction.
+    Used by tests to prove the dual gate can fail.
+    """
+    rng = np.random.RandomState(seed)
+    rna = cohort["rnaseq"].copy()
+    ids = rna["sample_id"].to_numpy().copy()
+    # Roll by a fixed nonzero offset so EVERY sample is re-paired (no fixed points),
+    # then add an extra deterministic shuffle of the offset for good measure.
+    perm = (np.arange(len(ids)) + 1 + rng.randint(0, len(ids))) % len(ids)
+    feats = rna.drop(columns=["sample_id"]).reset_index(drop=True)
+    feats.insert(0, "sample_id", ids[perm])
+    out = dict(cohort)
+    out["rnaseq"] = feats
+    return out
+
+
 class FidelityGateEval:
     """Gate a synthetic cohort on detectable-by-construction corruption (stage ②)."""
 
@@ -141,6 +187,61 @@ class FidelityGateEval:
             score=auroc,
             threshold=threshold,
             details={**breakdown, "auroc": auroc, "applicable": True},
+        )
+
+    def evaluate_dual(
+        self,
+        cohort: dict,
+        threshold: float = DEFAULT_AUROC_THRESHOLD,
+        methods: tuple[str, ...] = DEFAULT_DUAL_METHODS,
+    ) -> EvalResult:
+        """Gate on TWO mechanically independent detectors (gap #3 mitigation).
+
+        PASS only if the molecular-swap-vs-clean AUROC clears ``threshold`` under
+        EVERY method in ``methods`` — an AND gate, never a relaxation of
+        :meth:`evaluate`. The score is the minimum AUROC across methods, and
+        ``details["detectors_disagree"]`` flags when the methods straddle the
+        threshold (one clears it, one does not) — a diagnostic the single-scorer
+        gate could not produce. Vacuous pass (``applicable=False``) if ANY method
+        has no positives or no clean baseline, exactly as :meth:`evaluate`.
+
+        This breaks the verbatim shared-scorer symmetry (fidelity_gate and
+        mislabel_detection both used the single ``expression_rank`` detector): the
+        MSE-residual ``linear_model`` fails differently from ``1-|spearman|``. It
+        does NOT create a held-out oracle — both detectors read the same
+        generator's matrices, so corruption the generator never planted is
+        invisible to both (gap #1, blocked on real held-out data, stays open).
+        """
+        scored = fidelity_auroc_dual(cohort, methods)
+        per_method = {m: {"auroc": a, **b} for m, (a, b) in scored.items()}
+
+        if any(auroc is None for auroc, _ in scored.values()):
+            return EvalResult(
+                name="fidelity_gate",
+                passed=True,
+                score=1.0,
+                threshold=threshold,
+                details={
+                    "applicable": False,
+                    "reason": "no molecular swaps or no clean samples; AUROC undefined",
+                    "methods": list(methods),
+                    "per_method": per_method,
+                },
+            )
+
+        aurocs = [a for a, _ in scored.values()]
+        lo, hi = min(aurocs), max(aurocs)
+        return EvalResult(
+            name="fidelity_gate",
+            passed=lo >= threshold,
+            score=lo,
+            threshold=threshold,
+            details={
+                "applicable": True,
+                "methods": list(methods),
+                "per_method": per_method,
+                "detectors_disagree": (lo < threshold) != (hi < threshold),
+            },
         )
 
     def evaluate_generator(

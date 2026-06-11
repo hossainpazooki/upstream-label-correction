@@ -13,7 +13,12 @@ import pytest
 
 from core.synthetic import SyntheticCohortGenerator
 from evals import EvalResult
-from evals.fidelity_gate import FidelityGateEval, fidelity_auroc
+from evals.fidelity_gate import (
+    DEFAULT_DUAL_METHODS,
+    FidelityGateEval,
+    fidelity_auroc,
+    generate_signal_free_cohort,
+)
 
 pytest.importorskip("scipy")
 pytest.importorskip("sklearn")
@@ -113,3 +118,48 @@ def test_score_matches_helper():
     auroc, _ = fidelity_auroc(cohort)
     result = FidelityGateEval().evaluate(cohort)
     assert result.score == pytest.approx(auroc)
+
+
+# --- Dual-detector gate (gap #3: break the verbatim shared-scorer blind spot) ---
+
+
+def test_dual_gate_passes_powered_under_both_detectors():
+    # Both mechanically distinct detectors (rank correlation AND MSE residual)
+    # must clear the bar on a powered cohort. The gated score is the MINIMUM,
+    # and the two agree (neither straddles the threshold).
+    result = FidelityGateEval().evaluate_dual(_powered_cohort(), threshold=0.80)
+    assert result.details["applicable"] is True
+    assert result.passed is True
+    per = result.details["per_method"]
+    assert set(per) == set(DEFAULT_DUAL_METHODS)
+    assert all(per[m]["auroc"] >= 0.80 for m in DEFAULT_DUAL_METHODS)
+    assert result.score == pytest.approx(min(per[m]["auroc"] for m in DEFAULT_DUAL_METHODS))
+    assert result.details["detectors_disagree"] is False
+
+
+def test_dual_gate_fails_on_signal_free_null_control():
+    # Null control: re-pair RNA-Seq with the wrong samples so NO cross-omics
+    # signal survives, but keep the swap labels. A gate with real discriminating
+    # power must fail under BOTH detectors (AUROC collapses toward chance),
+    # proving it does not pass by construction.
+    null = generate_signal_free_cohort(_powered_cohort())
+    result = FidelityGateEval().evaluate_dual(null, threshold=0.80)
+    assert result.details["applicable"] is True
+    assert result.passed is False
+    per = result.details["per_method"]
+    assert all(per[m]["auroc"] < 0.80 for m in DEFAULT_DUAL_METHODS)
+
+
+def test_dual_gate_vacuous_on_clean_cohort():
+    # No injected swaps -> AUROC undefined under both detectors -> vacuous pass.
+    result = FidelityGateEval().evaluate_dual(_clean_cohort(), threshold=0.80)
+    assert result.details["applicable"] is False
+    assert result.passed is True
+
+
+def test_dual_gate_is_stricter_than_single():
+    # The AND gate is never a relaxation: if dual passes, the single rank gate
+    # passes too (the converse need not hold).
+    cohort = _powered_cohort()
+    if FidelityGateEval().evaluate_dual(cohort, threshold=0.80).passed:
+        assert FidelityGateEval().evaluate(cohort, threshold=0.80).passed is True

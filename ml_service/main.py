@@ -473,14 +473,18 @@ def _eval_fidelity_gate(params: dict | None, threshold: float, intent_id: str | 
     is trusted: a cohort that fails here carries no signal for a detector to
     find, so any F1 measured on it is meaningless.
 
-    The gate uses the same detector invocation as ``mislabel_detection`` but no
-    decision threshold — ``threshold`` here is the minimum acceptable AUROC
-    (default 0.80 when the gate is called with the assurance default of 0.0).
+    The gate scores separability under TWO mechanically independent detectors
+    (``evaluate_dual``: rank-correlation AND MSE-residual) and passes only if
+    both clear the AUROC bar — ``threshold`` here is the minimum acceptable AUROC
+    (default 0.80 when called with the assurance default of 0.0). This is the
+    gap #3 mitigation: the construction-validity check no longer shares the one
+    blind spot of the single rank detector that ``mislabel_detection`` grades on.
+    It is a decorrelated second scorer on synthetic data, NOT a held-out oracle —
+    gap #1 (real-data validation) remains open; see ``evals.transfer_validation``.
 
     The cohort's integrity-critical parameters (seed, corruption rate, size,
-    feature dimension, distance method) are pinned server-side via the gate
-    policy and the ``intent_id``-derived seed — caller ``params`` are NOT
-    consulted for them (gap #5).
+    feature dimension) are pinned server-side via the gate policy and the
+    ``intent_id``-derived seed — caller ``params`` are NOT consulted (gap #5).
     """
     from core.synthetic import SyntheticCohortGenerator
     from evals.fidelity_gate import DEFAULT_AUROC_THRESHOLD, FidelityGateEval
@@ -497,10 +501,9 @@ def _eval_fidelity_gate(params: dict | None, threshold: float, intent_id: str | 
         mislabel_fraction=_GATE_CORRUPTION_RATE,
         seed=_gate_seed(intent_id),
     )
-    result = FidelityGateEval().evaluate(
+    result = FidelityGateEval().evaluate_dual(
         generator.generate_cohort(),
         threshold=auroc_threshold,
-        distance_method=_GATE_DISTANCE_METHOD,
     )
     return _eval_result_to_dict(result)
 
