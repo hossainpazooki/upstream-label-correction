@@ -258,7 +258,22 @@ func (m *Manager) verify(ctx context.Context, intent *models.Intent) error {
 			continue
 		}
 		evalResults[criterion.Name] = result
-		if passed, ok := result["passed"].(bool); !ok || !passed {
+		// Trust-boundary defense (gap #6): the Go controller is the single
+		// authority for ACHIEVED, so it does NOT blindly trust the ML service's
+		// self-reported `passed`. checkEvalConsistency corroborates that boolean
+		// against the numeric evidence in the SAME response; a malformed,
+		// self-inconsistent (passed=true yet score<threshold), or gate-weakening
+		// (threshold below the requested bar) result fails closed.
+		passed, cerr := checkEvalConsistency(result, criterion)
+		if cerr != nil {
+			slog.Error("eval result failed consistency check",
+				"intent_id", intent.IntentID, "eval", criterion.Name, "error", cerr)
+			result["passed"] = false
+			result["consistency_error"] = cerr.Error()
+			allPassed = false
+			continue
+		}
+		if !passed {
 			allPassed = false
 		}
 	}
@@ -282,6 +297,52 @@ func (m *Manager) verify(ctx context.Context, intent *models.Intent) error {
 	intent.Error = &e
 	intent.Status = models.IntentStatusFailed
 	return m.intents.Update(ctx, intent)
+}
+
+// checkEvalConsistency corroborates the ML service's self-reported `passed`
+// against the numeric evidence in the same response (gap #6). It returns the
+// trustworthy verdict, or an error when the response is malformed, internally
+// inconsistent (passed=true yet score < threshold), or reports a threshold below
+// the one the controller demanded (a silently weakened gate). Every honest eval
+// satisfies threshold == requested and passed ⇒ score >= threshold, so this only
+// fires on a buggy, compromised, or optimistic ML response — which the caller
+// treats as a failed criterion (fail-closed).
+func checkEvalConsistency(result map[string]interface{}, criterion models.EvalCriterion) (bool, error) {
+	passed, ok := result["passed"].(bool)
+	if !ok {
+		return false, fmt.Errorf("missing or non-boolean 'passed'")
+	}
+	score, ok := evalFloat(result["score"])
+	if !ok {
+		return false, fmt.Errorf("missing or non-numeric 'score'")
+	}
+	threshold, ok := evalFloat(result["threshold"])
+	if !ok {
+		return false, fmt.Errorf("missing or non-numeric 'threshold'")
+	}
+
+	const eps = 1e-9
+	if threshold < criterion.Threshold-eps {
+		return false, fmt.Errorf("returned threshold %.4f is below the requested %.4f (gate weakened)", threshold, criterion.Threshold)
+	}
+	if passed && score < threshold-eps {
+		return false, fmt.Errorf("passed=true but score %.4f < threshold %.4f", score, threshold)
+	}
+	return passed, nil
+}
+
+// evalFloat coerces a JSON-decoded number to float64 (encoding/json decodes all
+// JSON numbers as float64; int cases are belt-and-suspenders).
+func evalFloat(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
 }
 
 // triggerWorkflows starts child workflows based on intent type.
