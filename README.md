@@ -188,7 +188,7 @@ The lifecycle now lives solely in the Go service (`intent-controller/`); the leg
 |---|---|
 | **Agent skills** (`web/src/lib/agent-skills/`) | biomarker discovery, sample QC, cross-omics integration, literature grounding (TypeScript) |
 | **MCP tools** (`web/src/mcp/`) | genomics + intent-lifecycle tools (TypeScript, MCP SDK) |
-| **Evals** (`evals/`) | mislabel detection (P/R/F1 vs. planted ground truth), biological validity (≥0.60), reproducibility (≥0.85), hallucination detection (≥0.90), adversarial robustness (=1.0), benchmark comparison |
+| **Evals** (`evals/`) | mislabel detection (P/R/F1 vs. planted ground truth), biological validity (≥0.60), reproducibility (≥0.85), hallucination detection (≥0.90), adversarial robustness (=1.0), benchmark comparison (marker-recovery vs. known signatures — **not** external validation; the reference shares the generator's planted namespace) |
 
 ---
 

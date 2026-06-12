@@ -7,6 +7,12 @@ from evals import EvalResult
 if TYPE_CHECKING:
     from core.storage import StorageBackend
 
+#: Minimum best-Jaccard overlap for the benchmark check to PASS. The old default
+#: of 0.0 passed on ANY single-gene overlap — a no-op gate; this non-trivial
+#: floor requires real recovery of the known marker set (~5+ overlapping genes
+#: for a typical ~30-gene panel) rather than a one-gene fluke.
+DEFAULT_BENCHMARK_JACCARD = 0.10
+
 
 class BenchmarkComparisonEval:
     """Compare agent-selected panel against published benchmark signatures."""
@@ -26,8 +32,26 @@ class BenchmarkComparisonEval:
             return 1.0
         return len(a & b) / len(a | b)
 
-    def evaluate(self, agent_panel: list[str], benchmark_name: str | None = None) -> EvalResult:
-        """Compare agent panel to published benchmarks. Returns overlap metrics."""
+    def evaluate(
+        self,
+        agent_panel: list[str],
+        benchmark_name: str | None = None,
+        threshold: float = DEFAULT_BENCHMARK_JACCARD,
+    ) -> EvalResult:
+        """Compare an agent-selected panel to published MSI signatures (marker recovery).
+
+        PASS only if the best Jaccard overlap clears ``threshold`` (default
+        ``DEFAULT_BENCHMARK_JACCARD``). The previous default of 0.0 passed on any
+        single-gene overlap — a no-op gate — which this replaces.
+
+        Honest scope: this is **not** independent external validation. The
+        reference signatures live in the SAME gene namespace the synthetic
+        generator plants its MSI/pathway signal into (the fixture's pathway block
+        is byte-identical to ``core.constants.KNOWN_MSI_PATHWAY_MARKERS``), so a
+        high overlap mostly confirms the panel recovered the known *planted*
+        markers — a self-consistency check, not an outside-the-generator oracle
+        (cf. gap #1/#3). ``details["independent_reference"]`` records this.
+        """
         agent_set = set(agent_panel)
         comparisons = {}
         best_jaccard = 0.0
@@ -57,8 +81,18 @@ class BenchmarkComparisonEval:
 
         return EvalResult(
             name="benchmark_comparison",
-            passed=best_jaccard > 0,  # any overlap is useful
+            passed=best_jaccard >= threshold,
             score=best_jaccard,
-            threshold=0.0,
-            details={"comparisons": comparisons},
+            threshold=threshold,
+            details={
+                "comparisons": comparisons,
+                # The reference overlaps the generator's own planted namespace, so
+                # this is marker-recovery / self-consistency, not external validation.
+                "independent_reference": False,
+                "reference_note": (
+                    "published signatures share the generator's planted gene "
+                    "namespace; this is panel/marker recovery, not an outside-"
+                    "the-generator oracle (gap #1/#3)"
+                ),
+            },
         )

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from evals.benchmark_comparison import BenchmarkComparisonEval
+from evals.benchmark_comparison import DEFAULT_BENCHMARK_JACCARD, BenchmarkComparisonEval
 
 FIXTURES_PATH = str(Path(__file__).resolve().parent.parent.parent / "evals" / "fixtures" / "known_msi_signatures.json")
 
@@ -72,6 +72,33 @@ class TestBenchmarkComparisonEval:
         for comp in result.details["comparisons"].values():
             assert comp["jaccard"] == 0.0
             assert comp["overlap_count"] == 0
+
+    def test_trivial_overlap_no_longer_passes(self, evaluator):
+        """A single-gene fluke (tiny Jaccard) must FAIL — the old 0.0 no-op gate is gone."""
+        panel = ["S100A14"] + [f"FAKE{i}" for i in range(19)]  # 1 real of 20 vs top5
+        result = evaluator.evaluate(panel, benchmark_name="precisionFDA_top5_proteomics")
+        comp = result.details["comparisons"]["precisionFDA_top5_proteomics"]
+        assert comp["overlap_count"] == 1
+        assert result.score < DEFAULT_BENCHMARK_JACCARD  # ~1/24
+        assert result.passed is False
+
+    def test_default_threshold_is_meaningful(self, evaluator):
+        """The reported threshold is the non-trivial floor, not 0.0."""
+        result = evaluator.evaluate(["S100A14", "ROCK2"], benchmark_name="precisionFDA_top5_proteomics")
+        assert result.threshold == DEFAULT_BENCHMARK_JACCARD
+        assert result.threshold > 0.0
+
+    def test_threshold_override_is_honoured(self, evaluator):
+        """A caller can demand stronger recovery; partial overlap fails a high bar."""
+        panel = ["S100A14", "ROCK2", "FAKE_GENE"]  # Jaccard 2/6 = 0.333
+        assert evaluator.evaluate(panel, benchmark_name="precisionFDA_top5_proteomics", threshold=0.5).passed is False
+        assert evaluator.evaluate(panel, benchmark_name="precisionFDA_top5_proteomics", threshold=0.3).passed is True
+
+    def test_reference_flagged_not_independent(self, evaluator):
+        """Honesty: the eval declares its reference is NOT an external oracle."""
+        result = evaluator.evaluate(["TAP1"], benchmark_name="precisionFDA_msi_proteomics")
+        assert result.details["independent_reference"] is False
+        assert "reference_note" in result.details
 
     def test_details_structure(self, evaluator):
         """Verify the comparison details have all expected keys."""

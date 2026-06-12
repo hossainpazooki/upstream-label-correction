@@ -320,22 +320,17 @@ async def _eval_adversarial_robustness(params: dict | None, threshold: float) ->
 def _eval_benchmark_comparison(params: dict | None, threshold: float, intent_id: str | None = None) -> dict:
     """Compare the agent panel to published signatures (evals.BenchmarkComparisonEval).
 
-    Mirrors AssuranceLoop._run_benchmark_comparison: the evaluator hardcodes
-    threshold=0.0, so the gate-provided threshold is honoured post-hoc against
-    the score (best Jaccard) without touching the evaluator's scoring logic.
+    A 0.0 threshold (the assurance default) would pass on ANY single-gene overlap
+    — a no-op gate; fall back to the eval's meaningful Jaccard floor so the gate
+    is real. NOTE: this is marker-recovery against a generator-derived reference,
+    not external validation (the eval flags ``independent_reference=False``).
     """
-    from evals.benchmark_comparison import BenchmarkComparisonEval
+    from evals.benchmark_comparison import DEFAULT_BENCHMARK_JACCARD, BenchmarkComparisonEval
 
     genes = _genes_from_params(params or {})
-    evaluator = BenchmarkComparisonEval()
-    result = evaluator.evaluate(genes)
-    return {
-        "name": result.name,
-        "passed": result.score >= threshold,
-        "score": result.score,
-        "threshold": threshold,
-        "details": result.details,
-    }
+    bar = threshold if threshold > 0.0 else DEFAULT_BENCHMARK_JACCARD
+    result = BenchmarkComparisonEval().evaluate(genes, threshold=bar)
+    return _eval_result_to_dict(result)
 
 
 def _eval_mislabel_detection(params: dict | None, threshold: float, intent_id: str | None = None) -> dict:
