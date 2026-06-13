@@ -295,6 +295,7 @@ upstream-label-correction/
 - [Temporal-Equivalent Workflow Functionality](docs/TEMPORAL_FUNCTIONALITY.md) — retries + parallel fan-out recovered in the Go engine
 - [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible-AI practices and eval design
 - [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, GPU training
+- [Gap Audit](docs/GAP_AUDIT.md) — gate integrity/honesty findings (correct-shaped-lies lens) and what remains
 - [Deployment](DEPLOY.md) · [Archived docs](docs/archive/) (incl. the retired [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md))
 
 ## License
