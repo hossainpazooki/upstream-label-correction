@@ -40,6 +40,42 @@ def _load_ground_truth(path: Path) -> dict[str, str] | None:
     return mislabel_type or None
 
 
+#: Modality columns in the precisionFDA sub-challenge-2 answer key (sum_tab_2.csv),
+#: in molecular-first priority: it lists, per sample, the sample index each
+#: modality's data actually came from.
+_SUM_TAB2_MODALITIES = (("Proteomics", "proteomics"), ("RNAseq", "rnaseq"), ("Clinical", "clinical"))
+
+
+def mislabel_type_from_sum_tab2(rows: list[dict]) -> dict[str, str]:
+    """Convert precisionFDA ``sum_tab_2.csv`` rows to the ``{sample_id: type}`` map.
+
+    Each row gives, for ``Training_N``, the sample index each modality
+    (Clinical / RNAseq / Proteomics) truly originates from. A sample is mislabeled
+    iff some modality's source index differs from its own; the recorded type is
+    the swapped modality, molecular-first (proteomics, then rnaseq, then clinical)
+    so the cross-omics distance path scores it as a positive. Clean samples are
+    omitted. Robust to a UTF-8 BOM and case in the header.
+    """
+    out: dict[str, str] = {}
+    for r in rows:
+        norm = {(k or "").lstrip("﻿").strip().lower(): v for k, v in r.items()}
+        sample = norm.get("sample")
+        if not sample:
+            continue
+        try:
+            idx = int(str(sample).split("_")[-1])
+        except ValueError:
+            continue
+        for col, typ in _SUM_TAB2_MODALITIES:
+            src = norm.get(col.lower())
+            if src is None or str(src).strip() == "":
+                continue
+            if int(float(src)) != idx:
+                out[sample] = typ
+                break
+    return out
+
+
 class TransferValidationEval:
     """Score the detector on REAL held-out data (gap #1). [PROPOSED — see module docstring.]"""
 
