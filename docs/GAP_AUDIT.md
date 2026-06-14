@@ -16,7 +16,7 @@ stated plainly everywhere rather than implied.
 
 | # | Risk (CSL lens) | Status | Mechanism / where | Commit |
 |---|---|---|---|---|
-| **1** | **No held-out oracle** — the gate scores the detector against the *same* synthetic ground truth the generator planted; ACHIEVED = self-consistent, not "works on real data". | 🔶 **Blocked on data — one real milestone, no independent validation yet** | **Real-matrix ingestion verified** (genuine milestone): the detector built on synthetic cohorts runs **unmodified on real COSMO/CPTAC/TCGA matrices** — real NaN, real gene namespaces, real scales — and produces sensible flags. A **self-injected** robustness check (we shuffled rnaseq labels ourselves, `RandomState(42)`, fixed-0.5 threshold) gave micro-F1 **0.85** (recall 1.0 — rnaseq-only ⇒ optimistic). **This is NOT independent validation:** *we* authored the corruption oracle, so gap #1's circularity is **relocated onto real features, not broken**. See [`TRANSFER_VALIDATION_RUN.md`](TRANSFER_VALIDATION_RUN.md). Full closure needs an **outside-authored** key — COSMO's own simulation protocol, or the gated precisionFDA clinical truth. Per-modality clinical key staged (`sum_tab_2.csv`, 20/80) via `scripts/build_real_labels.py`; `[PROPOSED]` `evals/transfer_validation.py` still needs the molecular matrices (`train_pro.tsv`/`train_rna.tsv`), **absent** from the public source. | `c5c034e` |
+| **1** | **No held-out oracle** — the gate scores the detector against the *same* synthetic ground truth the generator planted; ACHIEVED = self-consistent, not "works on real data". | 🔶 **Blocked on data — characterized on real matrices under an external error MODEL, but no independent validation yet** | **Real-matrix ingestion verified** (genuine milestone): the detector runs **unmodified on real COSMO/CPTAC/TCGA matrices** — real NaN, real gene namespaces, real scales. **Run 2 (current):** characterized under **COSMO's own published error taxonomy** (swap + duplicate + shift) across both molecular modalities, swept over a full grid (3 cohorts x fractions {0.10,0.20,0.30} x seeds {1,2,3} = 27 conditions), fixed-0.5 threshold. **Distribution** fixed-0.5 F1 = **0.805 mean, range [0.559, 0.939]** (per-cohort means CCRCC 0.890 / LUAD 0.813 / Chick 0.712); per-type recall SWAP 1.000, SHIFT 1.000, DUPLICATE 0.939. This supersedes Run 1's optimistic rnaseq-only point (F1 ~0.85, recall 1.0). **Still NOT independent validation and NOT a gap-#1 closure:** the error *MODEL* is externally defined by COSMO, but the *realized key* (which samples, which modality, which seed) is run by **us** — the oracle is self-authored, just following an outside recipe; no claim of independence-from-us or circularity-broken. See [`TRANSFER_VALIDATION_RUN.md`](TRANSFER_VALIDATION_RUN.md). Full closure needs the gated precisionFDA clinical truth. Per-modality clinical key staged (`sum_tab_2.csv`, 20/80) via `scripts/build_real_labels.py`; `[PROPOSED]` `evals/transfer_validation.py` still needs the molecular matrices (`train_pro.tsv`/`train_rna.tsv`), **absent** from the public source. | `c5c034e` |
 | **2** | **Tune-on-test** — the default gate selected the decision threshold to maximize F1 on the *same* cohort it then graded. | ✅ **Honest framing; substance folded into #1** | Gate reports `in_sample_f1` vs `held_out_f1` + delta; `clue.loop.select_threshold_holdout` added. Skeptic showed a disjoint-seed sibling is still structurally identical, so a true held-out fix needs #1's oracle. | `201f55d` |
 | **3** | **Shared scorer** — `fidelity_gate` reused the *exact* rank detector that `mislabel_detection` grades, so the construction-validity check shared the detector's blind spot. | ✅ **Fixed** | `FidelityGateEval.evaluate_dual`: AND-gate over two mechanically distinct detectors (rank-correlation **and** MSE-residual AUROC), `detectors_disagree` flag, null-control test. Decorrelated second scorer — **not** an external oracle. | `c5c034e` |
 | **4** | **Evals gate nothing / training deploys ungated** — `mislabel_detection`/`fidelity_gate` were in no `IntentSpec`; `training` reached ACHIEVED on mere completion, then ran `pulumi up`. | ✅ **Fixed** | `validation` gates on fidelity + mislabel; `training` gates its deploy on the SLM-probing evals; `verify()` refactored (`achieve()`) so `TriggersDeploy` fires only after a *gated* ACHIEVED. | `ecb490b` |
@@ -34,23 +34,31 @@ stated plainly everywhere rather than implied.
 
 ## What remains
 
-- **Gap #1 (one real milestone; independent validation still open).** The
-  detector's **ingestion on real matrices is verified** — it runs unmodified on
-  real COSMO (Zhang-lab) CPTAC/TCGA multi-omics matrices (real NaN, real gene
-  namespaces). A **self-injected** robustness check (we shuffled rnaseq labels
-  ourselves at a fixed 0.5 threshold) gave micro-F1 **0.85** (recall 1.0,
-  precision 0.73) — see [`TRANSFER_VALIDATION_RUN.md`](TRANSFER_VALIDATION_RUN.md).
-  **This does not close gap #1 and is not independent validation:** *we* authored
-  the corruption, so the oracle is still self-made (just on real features instead
-  of synthetic ones), and rnaseq-only injection makes 0.85 an optimistic bound,
-  not a performance estimate. The public COSMO tarball ships **base matrices, no
-  keys** — the premise that it held keyed simulated cohorts was wrong. Genuinely
-  independent options, in order of strength: (a) the gated precisionFDA clinical
-  held-out partition (real mislabel truth); (b) **COSMO's own** error-simulation
-  protocol (an outside-authored key, but still simulated). The per-modality
-  clinical key is **staged** (`sum_tab_2.csv`, 20/80) via
-  `scripts/build_real_labels.py`; the remaining blocker is the **molecular feature
-  matrices** (`train_pro.tsv` / `train_rna.tsv`) — drop them into `data/raw/` and
+- **Gap #1 (characterized under an external error model on real matrices;
+  independent validation still open).** The detector's **ingestion on real
+  matrices is verified** — it runs unmodified on real COSMO (Zhang-lab) CPTAC/TCGA
+  multi-omics matrices (real NaN, real gene namespaces). **Run 2** then
+  characterized it under **COSMO's own published error taxonomy** (swap +
+  duplicate + shift, mixed across proteomics and rnaseq), swept over a full
+  documented grid (3 cohorts x fractions {0.10, 0.20, 0.30} x seeds {1, 2, 3} = 27
+  conditions) at a **fixed 0.5** threshold. The result is reported as a
+  **distribution**: fixed-0.5 F1 = **0.805 mean, range [0.559, 0.939]**
+  (per-cohort means CCRCC 0.890 / LUAD 0.813 / Chick 0.712); per-error-type recall
+  SWAP 1.000, SHIFT 1.000, DUPLICATE 0.939 — see
+  [`TRANSFER_VALIDATION_RUN.md`](TRANSFER_VALIDATION_RUN.md). Run 2 supersedes
+  Run 1's optimistic single-type point (rnaseq-only label shuffle, F1 ~0.85,
+  recall 1.0) with a realistic multi-error-type sweep. **This does not close
+  gap #1 and is not independent validation:** COSMO's error *MODEL* is externally
+  defined, but the *realized key* (which samples are corrupted, in which modality,
+  under which seed) is run by **us** — so the oracle is still self-authored, just
+  following an outside-defined recipe. No claim of independence-from-us or
+  circularity-broken is made. The public COSMO tarball ships **base matrices, no
+  keys** — the premise that it held keyed simulated cohorts was wrong. The only
+  genuine closure is the **gated precisionFDA clinical held-out partition** (real
+  mislabel truth). The per-modality clinical key is **staged**
+  (`sum_tab_2.csv`, 20/80) via `scripts/build_real_labels.py`; the remaining
+  blocker is the **molecular feature matrices** (`train_pro.tsv` /
+  `train_rna.tsv`) — drop them into `data/raw/` and
   `evals/transfer_validation.py` activates with no code change.
 - **Lower-priority follow-ups:**
   - Promote `EnsembleMismatchClassifier` to a second fidelity detector *family*

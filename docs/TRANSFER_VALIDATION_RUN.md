@@ -191,3 +191,191 @@ Scratch script: `data/raw/cosmo/score_independent.py` (gitignored), run as
 micro-F1 = 0.85 (recall 1.0, precision 0.73). Because the corruption was authored
 by this experiment, this is a **real-data robustness check, not independent
 validation** — it does not close gap #1 and is not a real-world clinical number.
+
+---
+
+# Run 2 - COSMO published error taxonomy (swap/duplicate/shift)
+
+**Run 2 supersedes Run 1's optimism.** Run 1 injected a single, easy error type
+(rnaseq-only label swaps) at one fraction (0.20) and one seed (42), hitting
+recall 1.0 / F1 ~0.85 — an optimistic point estimate. Run 2 instead mixes the
+**three error types from COSMO's own published error taxonomy**
+(swap + duplicate + shift), across **both** molecular modalities
+(proteomics + rnaseq), and sweeps a documented grid of fractions and seeds to
+report a **distribution**, not a cherry-picked point. It is materially harder and
+more honest.
+
+**It is still NOT independent validation and still does NOT close gap #1.** The
+error *MODEL* (the swap/duplicate/shift taxonomy) is externally defined by COSMO,
+but the *realized key* — which specific samples get corrupted, in which modality,
+under which seed — is run by **us**. So the oracle is still self-authored (now
+following an outside-defined recipe). The only genuine closure remains the gated
+precisionFDA clinical key (real mislabel truth). No claim of
+independence-from-us or circularity-broken is made.
+
+## Honest label (verbatim)
+
+> published-protocol-simulated F1 on real COSMO matrices -- COSMO's error MODEL
+> is externally defined, but the realized key is run by us, so this is a
+> robustness characterization, NOT independent validation and NOT a gap-#1
+> closure (the only closure is the gated precisionFDA clinical key). No claim of
+> independence-from-us or circularity-broken is made.
+
+## COSMO published error taxonomy (externally defined, not ours)
+
+- **SWAP** — two samples exchange one modality's profile (A's rnaseq becomes B's
+  and vice versa).
+- **DUPLICATE** — one sample's modality profile overwrites another's (a profile
+  appears twice; the victim's true profile is lost).
+- **SHIFT** — a run of >=3 consecutive samples' modality labels shift by one
+  (A<-B, B<-C, C<-A within the run).
+
+Applied to the molecular modalities (proteomics and/or rnaseq); each affected
+sample is recorded with molecular type in `{proteomics, rnaseq}` so it counts as
+a POSITIVE for `score_molecular_detection`.
+
+## Grid run (no truncation)
+
+**FULL documented grid, no silent truncation:** 3 cohorts {CCRCC, LUAD,
+Chick_etal} x 3 fractions {0.10, 0.20, 0.30} x 3 seeds {1, 2, 3} = **27
+conditions**. Every condition mixed all three COSMO error types
+(swap + duplicate + shift) in roughly equal affected-sample share across the
+molecular modalities (proteomics/rnaseq chosen per-event by `RandomState(seed)`).
+Detector run unchanged:
+`evals.mislabel_detection.mismatch_frequencies(cohort, distance_method="expression_rank")`
+-> flag at **FIXED 0.5** -> `score_molecular_detection`. Wall time ~2s (CCRCC, 77
+samples), ~5s (LUAD, 107), ~13-33s (Chick, 192); the whole sweep finished in one
+run. Script: `data/raw/cosmo/cosmo_robustness_sweep.py` (gitignored,
+`git check-ignore` confirmed).
+
+## Grid / cohorts skipped (logged, no silent truncation)
+
+- **No grid points skipped within the run cohorts** — all 27 ran.
+- **Cohorts skipped by design** (logged in-script + stdout):
+  - `TCGA_BRCA` — microarray expression, not RNA-seq (different namespace/scale).
+  - `CCLE` — riboseq pairing, not the clean proteome+rnaseq pairing.
+  - `Battle_etal` — heavy missingness / riboseq pairing.
+- **Deterministic tractability cap (logged):** `GENE_CAP=1500` top-variance
+  proteome genes among the shared-gene set (the O(N^2) Spearman detector is the
+  bottleneck). Shared-gene pools before cap: 5035 (CCRCC), 8366 (LUAD), 8138
+  (Chick). No sample cap was needed.
+
+## Results — per-condition (fixed 0.5)
+
+| Cohort | fraction | seed | n mislabeled | precision | recall | F1 |
+|---|---|---|---|---|---|---|
+| CCRCC | 0.10 | 1 | 8 | 0.8000 | 1.0000 | 0.8889 |
+| CCRCC | 0.10 | 2 | 8 | 0.7000 | 0.8750 | 0.7778 |
+| CCRCC | 0.10 | 3 | 8 | 0.7273 | 1.0000 | 0.8421 |
+| CCRCC | 0.20 | 1 | 15 | 0.8824 | 1.0000 | 0.9375 |
+| CCRCC | 0.20 | 2 | 15 | 0.8125 | 0.8667 | 0.8387 |
+| CCRCC | 0.20 | 3 | 15 | 0.8333 | 1.0000 | 0.9091 |
+| CCRCC | 0.30 | 1 | 23 | 0.8846 | 1.0000 | 0.9388 |
+| CCRCC | 0.30 | 2 | 23 | 0.9167 | 0.9565 | 0.9362 |
+| CCRCC | 0.30 | 3 | 23 | 0.8846 | 1.0000 | 0.9388 |
+| LUAD | 0.10 | 1 | 11 | 0.6111 | 1.0000 | 0.7586 |
+| LUAD | 0.10 | 2 | 11 | 0.5789 | 1.0000 | 0.7333 |
+| LUAD | 0.10 | 3 | 11 | 0.5500 | 1.0000 | 0.7097 |
+| LUAD | 0.20 | 1 | 21 | 0.6897 | 0.9524 | 0.8000 |
+| LUAD | 0.20 | 2 | 21 | 0.7000 | 1.0000 | 0.8235 |
+| LUAD | 0.20 | 3 | 21 | 0.6774 | 1.0000 | 0.8077 |
+| LUAD | 0.30 | 1 | 32 | 0.8205 | 1.0000 | 0.9014 |
+| LUAD | 0.30 | 2 | 32 | 0.8421 | 1.0000 | 0.9143 |
+| LUAD | 0.30 | 3 | 32 | 0.7619 | 1.0000 | 0.8649 |
+| Chick_etal | 0.10 | 1 | 19 | 0.4091 | 0.9474 | 0.5714 |
+| Chick_etal | 0.10 | 2 | 19 | 0.3878 | 1.0000 | 0.5588 |
+| Chick_etal | 0.10 | 3 | 19 | 0.3958 | 1.0000 | 0.5672 |
+| Chick_etal | 0.20 | 1 | 38 | 0.5938 | 1.0000 | 0.7451 |
+| Chick_etal | 0.20 | 2 | 38 | 0.5672 | 1.0000 | 0.7238 |
+| Chick_etal | 0.20 | 3 | 38 | 0.6129 | 1.0000 | 0.7600 |
+| Chick_etal | 0.30 | 1 | 58 | 0.7342 | 1.0000 | 0.8467 |
+| Chick_etal | 0.30 | 2 | 58 | 0.6988 | 1.0000 | 0.8227 |
+| Chick_etal | 0.30 | 3 | 58 | 0.6905 | 1.0000 | 0.8169 |
+
+## Results — distribution (headline)
+
+Fixed-0.5 F1 as a **DISTRIBUTION** over all 27 grid conditions (each condition =
+one mix of swap+duplicate+shift):
+
+- **mean F1 = 0.805, range [0.559, 0.939].** Aggregation = unweighted mean of the
+  27 per-condition F1 values (each F1 itself computed from that condition's
+  TP/FP/FN, not a micro-average of pooled counts).
+- **Per-cohort means:** CCRCC 0.890 [0.778, 0.939]; LUAD 0.813 [0.710, 0.914];
+  Chick_etal 0.712 [0.559, 0.847].
+- **Strong fraction trend within every cohort** (F1 rises with corruption rate):
+  the fixed real-data false-positive floor is a larger *share* of flags when
+  fewer samples are truly mislabeled.
+- Recall stays near 1.0; **precision** is dragged down by genuine COSMO data
+  mismatches (the real-data FP floor), which is what makes this materially harder
+  and more honest than Run 1's recall-1.0 / F1-~1.0 rnaseq-only label-shuffle.
+
+Independently recomputed (this write-up): the 27 per-condition F1 values
+re-aggregate to mean **0.8050**, min **0.5588**, max **0.9388**; per-cohort means
+CCRCC **0.8898**, LUAD **0.8126**, Chick **0.7125** — byte-consistent with the
+script's HEADLINE_JSON. Spot-checked per-condition F1 from raw P/R (e.g. CCRCC
+0.10/s2 -> 0.7778, Chick 0.10/s1 -> 0.5714, LUAD 0.30/s3 -> 0.8649) all reconcile.
+
+## Per-error-type detection (recall only, pooled across all 27 conditions)
+
+Each injected positive is tagged with its source error type, then checked for
+detection (flag > 0.5):
+
+| Error type | detected / injected | recall |
+|---|---|---|
+| SWAP | 198 / 198 | 1.000 |
+| SHIFT | 378 / 378 | 1.000 |
+| DUPLICATE | 93 / 99 | 0.939 (6 victims missed) |
+
+**Interpretation.** Swaps and shifts break *both* ends of the cross-omics
+correspondence cleanly, so the Hungarian assignment surfaces them every time. The
+6 duplicate misses are *victims* whose surviving modality still rank-correlates
+well enough with the overwriting donor's profile that `mismatch_frequency` stayed
+<= 0.5. These are **recall only** — false positives (the precision drag) come from
+the real-data FP floor and are not attributable to any injected type, so the
+headline F1 is lower than any single type's recall.
+
+## Independent recomputation (verification, not self-report)
+
+Two independent layers:
+
+1. **In-script.** Alongside `score_molecular_detection`'s return, `recompute_prf()`
+   rebuilds positives from the realized key, intersects with the raw flagged set
+   (freq > 0.5) and shared samples, and computes TP/FP/FN -> P/R/F1 from scratch.
+   A hard assert `abs(scorer_f1 - raw_f1) < 1e-9` ran every condition and **never
+   tripped** — scorer and raw agree exactly. The per-condition rows above are the
+   raw-recomputed numbers, not the scorer's.
+2. **Out-of-script.** The 27 per-row F1 values were re-aggregated in a separate
+   Python process from the emitted `ROWS_JSON` -> mean 0.8050, min 0.5588, max
+   0.9388, byte-identical to the script's `HEADLINE_JSON`.
+
+Clean-baseline (uninjected) flag counts were also printed and explain the FP
+floor: **3/77 CCRCC, 8/107 LUAD, 31/192 Chick** — Chick's high baseline-FP rate
+is why its precision (and thus F1) is the lowest of the three.
+
+## Obstacles encountered
+
+1. The Bash tool could not write the ~230-line script via a single heredoc
+   (repeated "unexpected EOF matching quote" even with a quoted delimiter and
+   after stripping single quotes); resolved by appending the source in five
+   chunked heredocs to `/tmp` then copying into the repo, confirmed with
+   `ast.parse` SYNTAX OK.
+2. Chick_etal files are named `Chick_proteome.tsv` / `Chick_rnaseq.tsv` /
+   `Chick_cli.tsv` (not `Chick_etal_*`).
+3. Initial worry about a trailing-tab phantom sample column was unfounded — the
+   pandas Unnamed/empty filter is in place but CCRCC genuinely has 77 samples.
+4. Duplicate gene-symbol rows exist in the COSMO matrices; collapsed
+   deterministically with `keep="first"`.
+5. No project validator gate exists for this characterization task — it reuses
+   the detector contract unchanged, so the "gate" here is the in-script
+   scorer-vs-raw assert (passed on all 27) plus the external re-aggregation.
+
+## Bottom line to quote (Run 2)
+
+The detector, run unchanged at a **fixed 0.5** threshold against COSMO's
+**published** swap/duplicate/shift error taxonomy on **real** COSMO matrices,
+characterizes at fixed-0.5 F1 = **0.805 mean, range [0.559, 0.939]** over a full
+3x3x3 grid (mean per cohort CCRCC 0.890 / LUAD 0.813 / Chick 0.712). Per-type
+recall: SWAP 1.000, SHIFT 1.000, DUPLICATE 0.939. This is harder and more honest
+than Run 1, but the realized key is still ours: it is a **robustness
+characterization, NOT independent validation and NOT a gap-#1 closure** — the
+only closure is the gated precisionFDA clinical key.

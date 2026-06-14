@@ -57,6 +57,20 @@ wrong assumption, or an adversarial round to discover. Read alongside
   metric *means*, not just whether its arithmetic checks out. "Independent of our
   generator" is not "independent of us." (Holding the threshold fixed at 0.5 to
   avoid gap #2 was correct — it just wasn't the thing that needed guarding.)
+- **An external error MODEL is not an external KEY — and a swept distribution
+  beats a single optimistic point.** Run 1 injected one easy error type
+  (rnaseq-only label swaps) at one fraction/seed and got recall 1.0 / F1 ~0.85 —
+  an optimistic point estimate that read as "works." Run 2 instead followed
+  COSMO's *published* swap/duplicate/shift taxonomy across both molecular
+  modalities and swept a 3x3x3 grid (fractions x seeds x cohorts), reporting a
+  distribution: fixed-0.5 F1 = 0.805 mean, range [0.559, 0.939]; precision drops
+  on a real-data false-positive floor that single-type/single-point injection had
+  hidden. Two lessons: (1) report a distribution over a documented grid, never one
+  cherry-picked point, and mix realistic error types rather than the easiest one;
+  (2) adopting an outside party's error *MODEL* makes the recipe principled but
+  does **not** make the *key* independent — *we* still realize which samples get
+  corrupted, so it stays a robustness characterization, not independent validation
+  or a gap-#1 closure (the only closure is the gated precisionFDA clinical key).
 - **Real public multi-omics matrices need defensive ingestion.** The COSMO
   tarball had no keys/README/simulated cohorts the premise assumed (verify the
   data, not the spec); matrices are genes-as-rows so **transpose** before the
