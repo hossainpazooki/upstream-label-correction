@@ -253,12 +253,18 @@ uvicorn ml_service.main:app --port 8000 --reload                 # ML service (F
 cd web && npx tsx src/mcp/server.ts                              # MCP server (TypeScript)
 ```
 
-Tests:
+Tests & checks (these mirror CI — run them before pushing):
 
 ```bash
-pytest                       # all
-pytest tests/test_core/test_synthetic.py   # the generator
-pytest tests/test_evals/                   # evals
+pytest                       # all Python tests
+pytest tests/test_evals/                   # just the evals
+
+# Lint AND format — CI's lint job runs BOTH; `ruff check` alone misses formatting:
+ruff check        core clue evals training dspy_modules ml_service scripts tests
+ruff format --check core clue evals training dspy_modules ml_service scripts tests
+
+# Go engine; integration tests need Postgres (run with -tags=integration):
+( cd intent-controller && go build ./... && go vet ./... && go test ./... )
 ```
 
 ---
@@ -296,6 +302,7 @@ upstream-label-correction/
 - [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible-AI practices and eval design
 - [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, GPU training
 - [Gap Audit](docs/GAP_AUDIT.md) — gate integrity/honesty findings (correct-shaped-lies lens) and what remains
+- [Learnings](LEARNINGS.md) — hard-won engineering lessons (CI gates, determinism, validity boundaries)
 - [Deployment](DEPLOY.md) · [Archived docs](docs/archive/) (incl. the retired [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md))
 
 ## License
