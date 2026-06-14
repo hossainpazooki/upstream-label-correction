@@ -45,6 +45,25 @@ wrong assumption, or an adversarial round to discover. Read alongside
   recompute.** The Go gate now cross-checks the ML service's self-reported
   `passed` against the response's `score`/`threshold` and fails closed on
   inconsistency. Make gates server-authoritative (auth, server-pinned inputs).
+- **A number can be recomputed-from-raw and still be a correct-shaped lie — if
+  you verified the wrong thing.** A workflow scored the detector on real COSMO
+  (Zhang-lab) matrices and produced a fixed-0.5 micro-F1 of 0.85, verified twice
+  from raw and via a separate code path. But the "answer key" was a label-shuffle
+  the scoring script wrote *itself* (the public tarball ships base matrices, **no
+  keys** — the premise was wrong). Real biology made the *features* independent of
+  CLUE's generator; it did **not** make the *oracle* independent — we still chose
+  the corruption, so gap #1's circularity was **relocated, not broken**, and
+  rnaseq-only injection ⇒ recall 1.0 ⇒ optimistic. Lesson: scrutinize what a
+  metric *means*, not just whether its arithmetic checks out. "Independent of our
+  generator" is not "independent of us." (Holding the threshold fixed at 0.5 to
+  avoid gap #2 was correct — it just wasn't the thing that needed guarding.)
+- **Real public multi-omics matrices need defensive ingestion.** The COSMO
+  tarball had no keys/README/simulated cohorts the premise assumed (verify the
+  data, not the spec); matrices are genes-as-rows so **transpose** before the
+  detector's samples x genes contract; proteome NaN ran ~21% (Chick) vs ~0%
+  (CCRCC) and correlates with worse precision; an O(n^2 * genes) Spearman forces
+  deterministic gene/sample caps — cap with a seeded `RandomState` and **log**
+  every cap and every skipped cohort (no silent truncation).
 
 ## Workflow / process
 

@@ -40,6 +40,7 @@ terraform.tfvars
 data/raw/*.tsv
 data/raw/*.csv
 data/raw/*.json
+data/raw/cosmo/
 data/processed/
 *.pkl
 *.joblib
