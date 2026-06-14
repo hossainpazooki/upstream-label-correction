@@ -32,7 +32,10 @@ written down.
 
 - Go: `cd intent-controller && go build ./... && go vet ./... && go test ./...`
   (integration tests are behind `-tags=integration` and need Postgres via `DATABASE_URL`).
-- Python: `python -m pytest` · lint `python -m ruff check <paths>`.
+- Python: `python -m pytest` · lint `python -m ruff check <paths>` **and**
+  `python -m ruff format --check <paths>`. CI's `lint` job runs **both** — a
+  passing `ruff check` does **not** catch formatting drift, so always run the
+  `--check` too before handing over a commit (this caused 3 red CI runs).
 
 ## Security / integrity model — read [`docs/GAP_AUDIT.md`](docs/GAP_AUDIT.md)
 
