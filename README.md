@@ -6,6 +6,56 @@ Built on the [precisionFDA NCI-CPTAC Multi-omics Sample Mislabeling Correction C
 
 ---
 
+## In one picture
+
+CLUE is a **working instrument for developing and stress-testing sample-mislabel
+detectors.** It manufactures the ground truth real cohorts withhold — synthetic
+multi-omics data with *known* label corruption you can dial — so you can measure a
+detector exactly where real data goes dark, and push it until it breaks. **The
+full loop is built and tested today** (green). The same instrument points at real
+precisionFDA data the moment the molecular matrices land — that is what turns a
+synthetic-validated detector into a real-data-validated one (amber).
+
+```mermaid
+flowchart LR
+    subgraph TODAY["Built and tested today — validated on synthetic ground truth"]
+        direction LR
+        G["GENERATE<br/>synthetic multi-omics cohort<br/>+ known label corruption<br/>(dial the rate, scale, seed)"]
+        V["VERIFY<br/>dual independent<br/>fidelity gate"]
+        M["MEASURE<br/>detector P/R/F1 vs. planted truth<br/>swept across corruption rates"]
+        I["IMPROVE<br/>tune threshold / retrain<br/>then regenerate harder"]
+        G --> V --> M --> I
+        I -. "next rate" .-> G
+        M ==> FR["Operating frontier<br/>the hardest corruption rate<br/>the detector still clears"]
+    end
+
+    DET["COSMO-inspired detector<br/>runs unmodified on real<br/>CPTAC/TCGA matrices<br/>(robustness F1 0.805)"]
+    I --> DET
+
+    subgraph FUTURE["Unlocks with real precisionFDA data + compute"]
+        direction TB
+        O["Held-out oracle<br/>evals/transfer_validation.py activates<br/>→ closes gap #1 (real-data validation)"]
+        T["Full-scale retrain<br/>BioMistral / expression encoder on GPU"]
+    end
+    DET -. "real held-out labels" .-> O
+    DET -. "GPU" .-> T
+
+    classDef built fill:#e6f4ea,stroke:#34a853,color:#0b3d1f;
+    classDef future fill:#fef7e0,stroke:#f9ab00,color:#5f4400;
+    class G,V,M,I,FR,DET built;
+    class O,T future;
+    style TODAY fill:#f3faf5,stroke:#34a853,color:#0b3d1f;
+    style FUTURE fill:#fffdf5,stroke:#f9ab00,color:#5f4400;
+```
+
+**What you can run today** (no GCP, no external data): `python scripts/demo.py`
+prints the rate→F1 table and the detector's operating frontier in seconds.
+**What's still open:** gap #1 — an independent held-out oracle — is blocked on
+real molecular matrices, not on code; the seam is staged and skips gracefully
+until they land. Everything below expands on both halves of this picture.
+
+---
+
 ## The problem: you can't measure a detector where it matters
 
 In multi-omics precision medicine, the most dangerous errors happen **upstream**, before any model runs: a patient's proteomics, RNA-Seq, or clinical record gets swapped with another's. Mislabeled samples silently corrupt every downstream conclusion — and in the clinic, attribute the wrong data to the wrong patient. The precisionFDA / NCI-CPTAC challenge ([Boja et al., *Nature Medicine* 2018](https://www.nature.com/articles/s41591-018-0180-x)) framed this as a computational task: **detect and correct mislabeled samples** across clinical, proteomics, and RNA-Seq data.
