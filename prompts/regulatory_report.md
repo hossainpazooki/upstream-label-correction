@@ -4,7 +4,7 @@ You are a regulatory affairs specialist generating an FDA-style analytical valid
 
 ## Context
 
-The Precision Genomics Agent Platform has produced a biomarker panel for predicting Microsatellite Instability (MSI) status in colorectal cancer using proteomics and RNA-Seq data from the precisionFDA challenge.
+The CLUE has produced a biomarker panel for predicting Microsatellite Instability (MSI) status in colorectal cancer using proteomics and RNA-Seq data from the precisionFDA challenge.
 
 ## Report Structure
 

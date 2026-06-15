@@ -1,1 +1,1 @@
-"""Core modules for the Precision Genomics Agent Platform."""
+"""Core modules for CLUE."""

@@ -20,6 +20,26 @@ CLUE's answer: **manufacture the ground truth.** Generate synthetic cohorts that
 
 ---
 
+## What we show
+
+- **A closed-loop measurement instrument.** CLUE finds the detector's *operating
+  frontier* on synthetic cohorts — the hardest corruption rate it still clears —
+  at rates real data can't probe. `python scripts/demo.py` prints the rate→F1
+  table and the frontier in seconds. **[VALIDATED on synthetic ground truth]**
+- **Real-matrix robustness.** The detector runs **unmodified** on real CPTAC/TCGA
+  matrices and recovers corruption following COSMO's **published**
+  swap/duplicate/shift error taxonomy at a fixed-0.5 F1 of **0.805** over a
+  27-condition grid (range [0.559, 0.939]). The error *model* is externally
+  defined by COSMO, but the *realized key is authored by us* — so this is a
+  **robustness characterization, NOT independent validation**, and it does **not**
+  close gap #1. **[ROBUSTNESS, not validation — [docs/TRANSFER_VALIDATION_RUN.md](docs/TRANSFER_VALIDATION_RUN.md)]**
+- **Honesty by construction.** The verification gate was hardened across an
+  8-finding adversarial audit; the synthetic-vs-real boundary is labeled
+  everywhere, and the one open gap (#1, a real held-out oracle) is stated plainly
+  rather than buried. **[[docs/GAP_AUDIT.md](docs/GAP_AUDIT.md)]**
+
+---
+
 ## The idea: close the loop
 
 ```mermaid
@@ -294,16 +314,24 @@ upstream-label-correction/
 
 ## Documentation
 
+**Current** — describes the system as it stands (post Go/TS split):
+
+- [Technical Writeup](docs/TECHNICAL_WRITEUP.md) — the CLUE loop, COSMO detector, Go intent-controller, integrity model, real-COSMO run
 - [Scientific Methodology](docs/SCIENTIFIC_METHODOLOGY.md) — COSMO pipeline, biomarkers, statistical rationale
-- [Synthetic Data Strategy](docs/SYNTHETIC_DATA_STRATEGY.md) — signal layers, mislabel injection, fidelity criteria
-- [Architecture](docs/ARCHITECTURE.md) — Skill → Workflow → Eval design *(note: predates the Go/TS split)*
+- [Gap Audit](docs/GAP_AUDIT.md) — gate integrity/honesty findings (correct-shaped-lies lens) and what remains
+- [Transfer Validation Run](docs/TRANSFER_VALIDATION_RUN.md) — detector on **real** COSMO matrices: a **robustness characterization, not** independent validation (gap #1 stays open)
 - [Intent Workflow](docs/INTENT_WORKFLOW.md) — intent lifecycle and infrastructure resolution
 - [Temporal-Equivalent Workflow Functionality](docs/TEMPORAL_FUNCTIONALITY.md) — retries + parallel fan-out recovered in the Go engine
-- [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible-AI practices and eval design
 - [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, GPU training
-- [Gap Audit](docs/GAP_AUDIT.md) — gate integrity/honesty findings (correct-shaped-lies lens) and what remains
 - [Learnings](LEARNINGS.md) — hard-won engineering lessons (CI gates, determinism, validity boundaries)
-- [Deployment](DEPLOY.md) · [Archived docs](docs/archive/) (incl. the retired [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md))
+- [Deployment](DEPLOY.md)
+
+**Historical / design-era** — predate the Go/TS split; kept for provenance and carry a banner saying so:
+
+- [Synthetic Data Strategy](docs/SYNTHETIC_DATA_STRATEGY.md) — signal layers, mislabel injection, fidelity criteria *(the generator it describes is current; the surrounding framing is design-era)*
+- [Architecture](docs/ARCHITECTURE.md) — original Skill → Workflow → Eval design
+- [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible-AI practices and eval design
+- [Archived docs](docs/archive/) (incl. the retired [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md))
 
 ## License
 

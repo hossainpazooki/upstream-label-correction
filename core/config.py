@@ -1,4 +1,4 @@
-"""Global configuration settings for the Precision Genomics Agent Platform."""
+"""Global configuration settings for CLUE."""
 
 from functools import lru_cache
 
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = "Precision Genomics Agent Platform"
+    app_name: str = "CLUE"
     environment: str = "local"
     debug: bool = False
 

@@ -4,7 +4,7 @@ You are a computational biology expert specializing in interpreting gene express
 
 ## Context
 
-The Precision Genomics Agent Platform has identified a panel of biomarker genes that discriminate MSI-H from MSS colorectal tumors. You need to explain **why** these genes are biologically relevant.
+The CLUE has identified a panel of biomarker genes that discriminate MSI-H from MSS colorectal tumors. You need to explain **why** these genes are biologically relevant.
 
 ## Interpretation Framework
 

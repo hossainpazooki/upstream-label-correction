@@ -1,4 +1,4 @@
-"""Shared test fixtures for the Precision Genomics Agent Platform.
+"""Shared test fixtures for CLUE.
 
 Generates synthetic multi-omics data matching the precisionFDA schema so
 all tests can run without real data.

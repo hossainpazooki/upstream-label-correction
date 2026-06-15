@@ -1,76 +1,178 @@
-# Technical Writeup: Precision Genomics Agent Platform
+# Technical Writeup: CLUE — Closed-Loop Upstream Error-correction
 
-## Problem Statement
+> **Current as of the polyglot split.** This writeup describes the system as it
+> stands: a Python ML core, a Go `intent-controller`, a FastAPI `ml_service`
+> seam, and the CLUE closed loop. It supersedes the earlier
+> Temporal/GCP-Workflows/MCP-centric draft. For the canonical overview see
+> [`README.md`](../README.md); for the integrity/honesty record see
+> [`GAP_AUDIT.md`](GAP_AUDIT.md).
 
-As precision medicine expands beyond single-omics analysis, integrating proteomics, transcriptomics, and clinical data introduces a critical quality problem: sample mislabeling. When patient samples are accidentally swapped across data modalities, downstream biomarker discovery produces misleading results that can affect treatment decisions. The NCI-CPTAC precisionFDA challenge formalized this problem, providing a dataset of 80 tumor samples with intentionally introduced mislabels across paired proteomics (~7K genes) and RNA-Seq (~15K genes) measurements.
+## Problem statement
 
-This platform addresses both the mislabeling detection problem and the downstream task of MSI (microsatellite instability) status classification — a biomarker increasingly used to guide immunotherapy selection.
+In multi-omics precision medicine, the most damaging errors are **upstream**: a
+patient's proteomics, RNA-Seq, or clinical record is swapped with another's
+before any model runs. The NCI-CPTAC precisionFDA Multi-omics Sample Mislabeling
+Correction Challenge formalized this as a computational task over ~80 tumor
+samples with paired proteomics (~7K genes) and RNA-Seq (~15K genes).
 
-## Methodology
+The problem this repo attacks is not just *detecting* mislabels — it is
+**measuring a detector where it matters**. The challenge test set has hidden
+labels, a single fixed (unknown) corruption rate, and stochastic CV evaluation.
+You cannot compute precision/recall against ground truth you do not have, and you
+cannot ask "does the detector hold at 2%? 15%? 30%?" CLUE's answer is to
+**manufacture fidelity-verified ground truth** and treat synthetic cohorts as a
+*measurement instrument* — never as the deliverable.
 
-### COSMO-Inspired Pipeline
+## The closed loop
 
-The core analysis follows a four-stage pipeline inspired by the COSMO (Cross-Omics Sample Matching for Omics) approach:
+CLUE runs **generate → verify fidelity → measure → improve → regenerate**:
 
-**Stage 1 — Imputation.** Missing values in omics data fall into two categories: MNAR (missing-not-at-random, typically below detection limits) and MAR (missing-at-random, from batch effects). The imputer classifies each missing value and applies minimum-value imputation for MNAR and NMF-based matrix completion for MAR, with automatic rank selection. Y-chromosome genes receive gender-stratified handling to avoid introducing biological artifacts.
+1. **Generate** (`core/synthetic.py` → `SyntheticCohortGenerator`) — a complete
+   multi-omics cohort (clinical, proteomics, RNA-Seq) whose every defect is
+   recorded as ground truth: which samples were swapped, the swap pairs, the
+   mislabel type per sample, the MSI-H set, and the gender map. The corruption
+   rate (`mislabel_fraction`), cohort size, feature dimension, class balance, and
+   seed are all dials real data does not offer.
+2. **Verify fidelity** (`evals/fidelity_gate.py` → `evaluate_dual`) — confirm the
+   cohort is *detectable-by-construction* under **two mechanically independent**
+   scorers (rank-correlation distance `1−|spearman|` **and** an MSE-residual
+   linear model), AND-gated. This is construction-validity on synthetic data; it
+   does **not** establish real-data transfer (see "Honesty boundary" below).
+3. **Measure** (`evals/mislabel_detection.py` → `MislabelDetectionEval`) — run
+   the cross-omics detector, score its flags against the planted swap pairs as
+   precision/recall/F1, and sweep the corruption rate.
+4. **Improve / regenerate** (`clue/loop.py` → `CLUELoop`) — tune the detector
+   against measured feedback, then raise the corruption rate and regenerate a
+   harder cohort, until the tuned detector can no longer clear the target F1.
+   That last cleared rate is the detector's **operating frontier**.
 
-**Stage 2 — Cross-Omics Matching.** Proteomics and RNA-Seq samples are aligned using Spearman correlation across shared genes, producing a distance matrix solved by the Hungarian algorithm for optimal assignment. This identifies samples whose molecular profiles are discordant across modalities — the hallmark of mislabeling.
+`scripts/demo.py` drives this loop end to end and prints the rate→F1 table plus
+the frontier — every number labeled as synthetic measurement, not real-world
+performance.
 
-**Stage 3 — Feature Selection & Classification.** Four independent feature selection methods (ANOVA F-test, LASSO L1, NSC soft thresholding, Random Forest importance) vote on the final biomarker panel. The ensemble reduces method-specific bias. An ensemble classifier (logistic regression + random forest + gradient boosting) with a meta-learner combines separate-target (gender alone, MSI alone) and joint-target (4-class combined phenotype) predictions.
+## The COSMO-inspired detector
 
-**Stage 4 — Dual Validation.** Proteomics-only and RNA-Seq-only predictions are compared. Concordant predictions receive HIGH confidence; discordant predictions are flagged for REVIEW. This dual-path approach catches cases where a mislabel affects only one modality.
+The detector is a four-stage pipeline inspired by **COSMO** (Cross-Omics Sample
+Matching), the post-challenge methodology from the top-3 teams. This methodology
+is unchanged from the original design and remains accurate:
 
-### Joint Phenotype Strategy
+**Stage 1 — Imputation.** Missing values split into MNAR (below-detection-limit)
+and MAR (batch effects). The imputer classifies each missing value, applying
+minimum-value imputation for MNAR and NMF-based completion (automatic rank
+selection) for MAR, with gender-stratified handling of Y-chromosome genes.
 
-A key technical contribution is the joint phenotype classification strategy. Rather than predicting gender and MSI independently (separate strategy), the classifier also trains on the 4-class joint label (gender × MSI). This captures interaction effects — for example, some MSI pathway genes show gender-dependent expression. The meta-learner receives predictions from both strategies, learning when joint prediction improves over separate prediction.
+**Stage 2 — Cross-omics matching** (`core/cross_omics_matcher.py`). Proteomics
+and RNA-Seq samples are aligned via Spearman correlation across shared genes,
+producing a distance matrix solved by the Hungarian algorithm over 100 subsampled
+iterations. Samples with `mismatch_frequency > 0.5` are flagged. Model-free;
+catches proteomics↔RNA-Seq discordance.
 
-### Agent Architecture
+**Stage 3 — Classification** (`core/classifier.py`). An ensemble of four
+classifiers across two phenotype strategies (gender, MSI) is stacked into a
+meta-learner; samples whose molecular phenotype contradicts their annotation are
+flagged. The joint phenotype strategy (4-class gender × MSI) captures interaction
+effects a separate-target classifier misses.
 
-The platform implements a layered agent architecture:
+**Stage 4 — Dual validation.** The two independent flag sources are cross-checked:
+**HIGH** (both agree) / **REVIEW** (one) / **PASS** (neither). Two-path
+concordance is what makes a mismatch call trustworthy enough to act on, and it
+catches mislabels that affect only one modality.
 
-- **Skill Layer** — Domain-specific async Python classes (biomarker discovery, sample QC, cross-omics integration) that orchestrate multi-step analysis through MCP tool calls
-- **MCP Tool Layer** — 9 protocol-compliant tools with Pydantic validation, providing a standardized interface between agent reasoning and computation
-- **Core ML Layer** — Pure computation classes with no I/O dependencies, enabling testing without infrastructure
-- **Workflow Layer** — GCP Workflows YAML definitions for production durability, with a local runner for development
+## The agentic lifecycle (Go `intent-controller`)
 
-This separation means the same analysis logic works in three contexts: interactive agent sessions (skills), production pipelines (workflows), and automated testing (direct core class calls).
+The same observe → decide → act → verify discipline runs at the platform level as
+an **intent lifecycle** (inspired by intent-based networking, IETF RFC 9315). The
+lifecycle now lives **solely in the Go service** (`intent-controller/`); the
+legacy Python `intents/`/`workflows/` packages are **decommissioned** after the
+Go service reached parity. States: DECLARED → RESOLVING → ACTIVE → VERIFYING →
+ACHIEVED, with BLOCKED/FAILED edges.
 
-## Architecture Decisions
+- The Go controller is the **single authority for `ACHIEVED`**: `verify()` runs
+  each `IntentSpec` eval criterion via the ML service and gates on the aggregate.
+- It runs **multiple replicas safely** via a cross-replica claim/lease (Postgres
+  `FOR UPDATE SKIP LOCKED`).
+- VERIFY is wired through the ML service: the controller's `RunEval` posts to
+  `ml_service`'s `/ml/evaluate`, which routes `eval_name` to the matching runner.
+  For the mislabel gate, integrity-critical cohort parameters (corruption rate,
+  size, and a seed derived from the **server-assigned** `intent_id`) are **pinned
+  server-side**, so the gate cohort cannot be seed-shopped by the caller.
 
-**GCP Workflows over Temporal.** The platform originally used Temporal for workflow orchestration on a self-managed GCE VM (~$98/month). Since the workflows are medium-complexity sequential pipelines without long-running replay or signal requirements, we migrated to GCP Workflows (~$6/month), eliminating VM management overhead and aligning with the serverless architecture. Activities are exposed as HTTP endpoints on a dedicated Cloud Run service.
+## Integrity model and the honesty boundary
 
-**MCP for tool boundaries.** The Model Context Protocol provides schema validation at the boundary between agent reasoning and computation. This is important for genomics tools where input validation (e.g., ensuring gene names are from the correct organism, modality types are valid) prevents silent errors that could propagate through the pipeline.
+The verification gate has been hardened across an 8-finding audit read through a
+"correct-shaped-lies" red-team lens (see [`GAP_AUDIT.md`](GAP_AUDIT.md)). It is
+now **server-authoritative**: an authenticated control plane (`X-Service-Token`),
+server-pinned cohort params, a **dual decorrelated** fidelity detector, and a
+Go-side consistency check that won't trust a self-inconsistent `passed`.
 
-**Synthetic data for testing.** The platform includes a configurable synthetic data generator with five signal layers (MSI pathway fold-changes, gender-dependent expression, cross-omics shared factors, mislabel injection, structured missingness). This enables comprehensive testing without committing real patient data, while producing datasets with realistic characteristics that exercise the full pipeline.
+**The load-bearing caveat (gap #1).** The fidelity gate validates synthetic
+*self-consistency*, **not** real-world performance. Both fidelity scorers read the
+*same* generator's matrices, so this is a decorrelated second scorer on synthetic
+data — **not** an independent held-out oracle. Corruption the generator never
+planted is invisible to both. Clearing the gate does **not** establish real-data
+performance. The only true fix is validation against the real precisionFDA
+held-out partition with curated clinical labels, which are **not** in this repo
+(`data/raw` is gitignored; the challenge withheld test labels).
+`evals/transfer_validation.py` is the `[PROPOSED]` seam for that — it skips
+gracefully until real data lands and never reports a synthetic number as
+real-data performance.
 
-**DSPy for prompt optimization.** Four domain-specific modules (biomarker discovery, feature interpretation, sample QC, regulatory reporting) are compiled with MIPROv2 to automatically optimize prompts against evaluation metrics. This replaces manual prompt engineering with systematic optimization.
+## Real-COSMO robustness run (what it is, and what it is not)
 
-## Evaluation Framework
+The detector has been run **unmodified on real CPTAC/TCGA matrices** from the
+public COSMO datasets release (Bing Zhang lab) — real NaN, real gene namespaces,
+real scales. Against corruption following **COSMO's own published error taxonomy**
+(swap / duplicate / shift) across a documented 3×3×3 grid (3 cohorts × 3
+fractions × 3 seeds = 27 conditions), the detector characterizes at a **fixed-0.5
+F1 of 0.805, range [0.559, 0.939]** (per-cohort means CCRCC 0.890 / LUAD 0.813 /
+Chick 0.712; per-type recall: swap 1.000, shift 1.000, duplicate 0.939). Full
+record: [`TRANSFER_VALIDATION_RUN.md`](TRANSFER_VALIDATION_RUN.md).
 
-Trust in AI-assisted biomarker discovery requires domain-specific evaluation beyond standard ML metrics:
+**This is a robustness characterization, NOT independent validation, and it does
+NOT close gap #1.** The error *model* (the swap/duplicate/shift taxonomy) is
+externally defined by COSMO, but the *realized key* — which specific samples are
+corrupted, in which modality, under which seed — is authored by **us**. So the
+oracle is self-made (now following an outside-defined recipe), and the features
+are real but the corruption is simulated. The genuine milestone is **real-matrix
+ingestion and robustness**; the genuine closure remains the gated precisionFDA
+clinical key. No claim of independence-from-us or circularity-broken is made.
 
-- **Biological Validity** (>= 60% pathway coverage) — Measures whether agent-selected genes overlap with known MSI pathway markers (immune infiltration, interferon response, antigen presentation, mismatch repair adjacent)
-- **Hallucination Detection** (>= 90% citation accuracy) — Verifies PubMed citations in biological interpretations are real and relevant
-- **Reproducibility** (>= 85% Jaccard similarity) — Ensures consistent feature selection across repeated runs
-- **Benchmark Comparison** — Compares selected biomarker panels against published signatures
+## Determinism
 
-These evals are CI-gatable: each returns a pass/fail result with a numeric score, enabling automated quality gates in deployment pipelines.
+Determinism is a hard invariant: all randomness flows through a seeded `PCG64`
+stream (generator) or `RandomState(42)` (detector). Same seed → byte-identical
+cohort → exact regression tests. Global `np.random` use is prohibited because it
+breaks byte-identical reproduction.
 
-## Lessons Learned
+## Lessons learned
 
-**1. Missing data classification matters more than imputation method.** The choice between MNAR and MAR imputation had a larger impact on downstream classification than the specific imputation algorithm. Getting the classification wrong (e.g., treating below-detection-limit zeros as random missingness) introduced systematic bias in feature selection.
+1. **Missing-data classification matters more than imputation method.** Choosing
+   MNAR vs MAR had a larger downstream impact than the specific algorithm.
+   Treating below-detection-limit zeros as random missingness introduced
+   systematic feature-selection bias.
+2. **Cross-omics concordance is a powerful validation signal.** When proteomics
+   and RNA-Seq independently agree, confidence is substantially higher than
+   either alone — especially valuable when a mislabel affects only one modality.
+3. **Joint phenotype improves over separate prediction.** The 4-class joint label
+   (gender × MSI) captures interaction effects separate binary classifiers miss;
+   the meta-learner weights joint predictions more heavily near decision
+   boundaries.
+4. **Synthetic generators need realistic structure, not random noise.** Uniform
+   random noise produced unrealistically high accuracy; structured signal layers
+   (pathway fold-changes, gender effects, batch-dropout missingness) produced
+   datasets that exercised the edge cases the pipeline must handle.
+5. **A measurement instrument must be kept honest by construction.** The whole
+   point of CLUE is measuring a detector against ground truth, so every empirical
+   number is recomputed from the raw source and the synthetic-vs-real boundary is
+   never blurred. The gap audit and the explicit "this is not validation" labels
+   on the real-COSMO run are the discipline that keeps the instrument trustworthy.
 
-**2. Cross-omics concordance is a powerful validation signal.** When proteomics and RNA-Seq independently agree on a prediction, confidence is substantially higher than either modality alone. This dual-path validation is especially valuable for sample mislabeling detection, where the mislabel may affect only one modality.
+## Future directions
 
-**3. Joint phenotype improves over separate prediction.** The 4-class joint label (gender × MSI) captures interaction effects that separate binary classifiers miss. The meta-learner learned to weight joint predictions more heavily when the sample falls near decision boundaries.
-
-**4. Serverless workflows reduce operational burden significantly.** Moving from a self-managed Temporal VM to GCP Workflows eliminated a class of operational issues (VM monitoring, Docker updates, Temporal version management) while reducing cost by ~94%. The tradeoff — less expressive orchestration — was acceptable because the workflows are straightforward sequential pipelines.
-
-**5. Synthetic data generators need realistic structure, not just random noise.** Early synthetic datasets with uniform random noise produced unrealistically high classifier accuracy. Adding structured signal layers (pathway fold-changes, gender effects, batch dropout missingness) produced datasets that exercised edge cases the pipeline needed to handle.
-
-## Future Directions
-
-- **Active learning loop**: Use classifier uncertainty to prioritize manual review of ambiguous samples
-- **Longitudinal monitoring**: Track biomarker panel stability across dataset updates using the feature snapshot infrastructure
-- **Multi-center validation**: Extend the synthetic data generator with site-specific batch effects to test generalization
-- **Regulatory documentation**: Expand the DSPy regulatory report module to generate IVD-ready documentation
+- **Close gap #1** when the real precisionFDA held-out partition + curated labels
+  are available: activate `evals/transfer_validation.py` as the independent
+  oracle.
+- **Hard-example reweighting** in the improve step — a lever the loop structure
+  admits but does not yet drive.
+- **Multi-center validation**: extend the generator with site-specific batch
+  effects to test generalization.
