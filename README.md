@@ -320,15 +320,15 @@ upstream-label-correction/
 - [Scientific Methodology](docs/SCIENTIFIC_METHODOLOGY.md) — COSMO pipeline, biomarkers, statistical rationale
 - [Gap Audit](docs/GAP_AUDIT.md) — gate integrity/honesty findings (correct-shaped-lies lens) and what remains
 - [Transfer Validation Run](docs/TRANSFER_VALIDATION_RUN.md) — detector on **real** COSMO matrices: a **robustness characterization, not** independent validation (gap #1 stays open)
-- [Intent Workflow](docs/INTENT_WORKFLOW.md) — intent lifecycle and infrastructure resolution
-- [Temporal-Equivalent Workflow Functionality](docs/TEMPORAL_FUNCTIONALITY.md) — retries + parallel fan-out recovered in the Go engine
-- [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM, DSPy, GPU training
+- [Temporal-Equivalent Workflow Functionality](docs/TEMPORAL_FUNCTIONALITY.md) — retries + parallel fan-out + cross-replica claim/lease in the Go engine
+- [Intent Workflow](docs/INTENT_WORKFLOW.md) — intent lifecycle *(mixed vintage: the Go intent-plane intro is current; the detailed Python-implementation sections are historical — carries a banner)*
 - [Learnings](LEARNINGS.md) — hard-won engineering lessons (CI gates, determinism, validity boundaries)
 - [Deployment](DEPLOY.md)
 
 **Historical / design-era** — predate the Go/TS split; kept for provenance and carry a banner saying so:
 
 - [Synthetic Data Strategy](docs/SYNTHETIC_DATA_STRATEGY.md) — signal layers, mislabel injection, fidelity criteria *(the generator it describes is current; the surrounding framing is design-era)*
+- [Advanced ML Integration](docs/ADVANCED_ML_INTEGRATION.md) — SLM/QLoRA, DSPy, GPU training *(modules exist in `training/`/`dspy_modules/`; the Temporal + Python-monolith orchestration it describes is superseded)*
 - [Architecture](docs/ARCHITECTURE.md) — original Skill → Workflow → Eval design
 - [Anthropic Alignment](docs/ANTHROPIC_ALIGNMENT.md) — responsible-AI practices and eval design
 - [Archived docs](docs/archive/) (incl. the retired [migration plan](docs/archive/PULUMI_MIGRATION_PLAN.md))

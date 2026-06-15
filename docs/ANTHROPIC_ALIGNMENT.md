@@ -1,5 +1,12 @@
 # Anthropic Alignment
 
+> **[HISTORICAL — design-era doc]** Written against the original platform
+> framing; component names and the Python-monolith structure predate the polyglot
+> split (Go `intent-controller`, TypeScript `web`/`infra-ts`, Python ML core) and
+> the CLUE closed loop. The responsible-AI / eval principles still apply, but for
+> current structure see [`README.md`](../README.md) and
+> [`TECHNICAL_WRITEUP.md`](TECHNICAL_WRITEUP.md).
+
 > How each component of this platform maps to the Applied AI Engineer, Life Sciences
 > (Beneficial Deployments) role at Anthropic, and lessons learned about deploying
 > AI in life sciences research.

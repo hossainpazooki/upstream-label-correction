@@ -55,7 +55,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       ML_SERVICE_URL: http://ml-service:8000
       INTENT_CONTROLLER_URL: http://intent-controller:8090
-      NEXT_PUBLIC_APP_NAME: Precision Genomics Agent Platform
+      NEXT_PUBLIC_APP_NAME: CLUE
     depends_on:
       db:
         condition: service_healthy

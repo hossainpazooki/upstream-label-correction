@@ -1,5 +1,12 @@
 # Architecture
 
+> **[HISTORICAL — design-era doc]** This describes the original Python-monolith
+> **Skill → Workflow → Eval** design and **predates the polyglot split** (Go
+> `intent-controller`, TypeScript `web`/`infra-ts`, Python ML core) and the CLUE
+> closed loop. The Python `intents/`/`workflows/` packages it references are
+> **decommissioned**. For the current architecture see [`README.md`](../README.md)
+> and [`TECHNICAL_WRITEUP.md`](TECHNICAL_WRITEUP.md).
+
 > **Central principle:** Every capability follows the **Skill -> Workflow -> Eval** lifecycle.
 > A Skill encodes domain logic, a Workflow makes it durable, and an Eval gates it for trust.
 
