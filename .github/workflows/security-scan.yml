@@ -25,7 +25,16 @@ jobs:
         # --strict dropped: the local editable dist (precision-genomics-agent-platform)
         # is not published to PyPI and cannot be audited; without --strict that is a
         # warning, while real dependency vulnerabilities still fail the job.
-        run: pip-audit --desc
+        #
+        # --ignore-vuln CVE-2025-69872 (diskcache pickle-deserialization RCE):
+        #   diskcache is a transitive dep of dspy-ai and has NO fixed release
+        #   (latest is 5.6.3; upstream's last release predates the advisory, so
+        #   there is nothing to upgrade to). The CVE requires an attacker to hold
+        #   write access to the local cache directory, which on our controlled
+        #   runtime already implies host code execution -- it adds no new exposure
+        #   here. Revisit and drop this ignore the moment a patched diskcache (or a
+        #   dspy-ai that pins a safe serializer) ships.
+        run: pip-audit --desc --ignore-vuln CVE-2025-69872
 
   sast:
     runs-on: ubuntu-latest
@@ -42,6 +51,43 @@ jobs:
       - name: Run SAST rules
         # SAST over the full source set; intentional findings are noqa'd with a reason.
         run: ruff check --select S core clue evals training dspy_modules ml_service scripts
+
+  go-audit:
+    # Vulnerability + SAST coverage for the Go intent-controller -- the
+    # server-authoritative verification gate hardened in the 8-finding audit.
+    # The Python jobs above never touched this module; this closes that gap.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: intent-controller
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          # `stable` (not ci.yml's pinned 1.22) on purpose: govulncheck reports
+          # stdlib vulnerabilities against the building toolchain, so an EOL 1.22
+          # would flag a wall of already-patched stdlib CVEs. Build the scan with
+          # the current stdlib and let it surface only genuinely-open issues.
+          go-version: stable
+          cache-dependency-path: intent-controller/go.sum
+
+      - name: Install Go security tools
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run govulncheck
+        # Call-graph aware: fails only on vulnerabilities the controller actually
+        # reaches, not every CVE in the dependency closure -- low false-positive.
+        run: govulncheck ./...
+
+      - name: Run gosec (Go SAST)
+        # Gate on medium+ severity to mirror the Python ruff `--select S` job.
+        # Intentional medium+ findings are annotated in-source with
+        # `#nosec Gxxx -- reason`; LOW unhandled-error (G104) findings are
+        # code-quality, tracked outside this security gate.
+        run: gosec -severity medium ./...
 
   secret-detection:
     runs-on: ubuntu-latest

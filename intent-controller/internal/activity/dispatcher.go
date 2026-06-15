@@ -308,6 +308,7 @@ func (p *pulumiDeployer) Deploy(ctx context.Context, stackName, imageTag string)
 
 	for _, a := range args {
 		var stdout, stderr bytes.Buffer
+		// #nosec G204 -- fixed binary ("pulumi"), no shell; args are internal deploy verbs with stack/tag as discrete argv (no injection path).
 		cmd := exec.CommandContext(ctx, p.pulumiBin, a...)
 		cmd.Dir = p.workDir
 		cmd.Stdout = &stdout

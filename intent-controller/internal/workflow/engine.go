@@ -143,6 +143,7 @@ func (e *Engine) Start(ctx context.Context, workflowType string, params map[stri
 	}
 
 	// Run asynchronously
+	// #nosec G118 -- intentional: detached from the request ctx so the workflow is not cancelled when the HTTP request returns.
 	go e.execute(context.Background(), workflowID, def, params)
 
 	slog.Info("workflow started", "workflow_id", workflowID, "type", workflowType)
@@ -247,6 +248,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 
 		// Resume asynchronously, like Start. Use a background context so the
 		// resume is not tied to the recovery sweep's lifetime.
+		// #nosec G118 -- intentional: detached from the sweep ctx so resume outlives the recovery pass.
 		go e.runPhases(context.Background(), wf.WorkflowID, remaining, wf.Params)
 	}
 

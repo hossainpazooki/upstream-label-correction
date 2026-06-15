@@ -163,5 +163,6 @@ func makeWorkerID() string {
 	if err != nil || host == "" {
 		host = "host"
 	}
+	// #nosec G404 -- non-crypto: a random suffix that only disambiguates replica IDs, not a secret.
 	return fmt.Sprintf("%s-%d-%04d", host, os.Getpid(), rand.Intn(10000))
 }
