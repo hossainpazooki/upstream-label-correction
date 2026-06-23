@@ -79,29 +79,28 @@ CLUE's answer: **manufacture the ground truth.** Generate synthetic cohorts that
   frontier* on synthetic cohorts — the hardest corruption rate it still clears —
   at rates real data can't probe. `python scripts/demo.py` prints the rate→F1
   table and the frontier in seconds. **[VALIDATED on synthetic ground truth]**
-- **Real-matrix robustness.** The detector runs **unmodified** on real CPTAC/TCGA
-  matrices and recovers corruption following COSMO's **published**
-  swap/duplicate/shift error taxonomy at a fixed-0.5 F1 of **0.805** over a
-  27-condition grid (range [0.559, 0.939]). The error *model* is externally
-  defined by COSMO, but the *realized key is authored by us* — so this is a
-  **robustness characterization, NOT independent validation**, and it does **not**
-  close gap #1. **[ROBUSTNESS, not validation — [docs/TRANSFER_VALIDATION_RUN.md](docs/TRANSFER_VALIDATION_RUN.md)]**
-- **Independent real-data validation (gap #1, train partition).** The real
-  precisionFDA sub-challenge-2 training matrices (`train_pro` 4119×80, `train_rna`
-  17448×80) now sit in `data/raw/`, and `transfer_validation('train')` scores the
-  detector against the **challenge organizers'** mislabel key (`sum_tab_2.csv` →
-  20/80, `{pro 8, rna 8, clin 4}`) — a key authored by neither us nor the
-  generator. At the **fixed default 0.5** threshold: **F1 0.914** (precision 0.842,
-  recall 1.000; TP 16 / FP 3 / FN 0), independently recomputed from the raw flagged
-  set. This is genuinely independent of *us*, unlike the COSMO robustness run — it
-  closes gap #1 for the train partition. It is **not** a blind-test number (the
-  challenge withheld test labels) and covers the 16 *molecular* swaps only (4
-  clinical-only swaps are out of a cross-omics detector's scope). **[VALIDATED on
-  real organizer-keyed data — [docs/TRANSFER_VALIDATION_RUN.md](docs/TRANSFER_VALIDATION_RUN.md)]**
+- **Independent real-data validation (gap #1, train partition).** On the real
+  precisionFDA sub-challenge-2 training matrices, the detector scores **F1 0.914**
+  (precision 0.842, recall 1.000) against the **challenge organizers'** own mislabel
+  key — a key authored by neither us nor the generator, with the threshold left at
+  the default 0.5. That independence is what makes it *validation*, and it closes
+  gap #1 for the train partition. Scope: train labels only (the blind test labels
+  were withheld), and the 16 *molecular* swaps only (4 clinical-only swaps are out of
+  a cross-omics detector's reach). Number independently recomputed from the raw
+  flagged set. **[VALIDATED on real organizer-keyed data — [docs/TRANSFER_VALIDATION_RUN.md](docs/TRANSFER_VALIDATION_RUN.md)]**
+  - *Separate robustness stress-test (not validation, not comparable to the above).*
+    The same detector, run **unmodified** on real CPTAC/TCGA matrices under COSMO's
+    published swap/duplicate/shift taxonomy across a 27-condition grid, holds a
+    fixed-0.5 F1 of **0.805** (range [0.559, 0.939]). This is a *harder, different*
+    test — a key **we** author over multiple error types and cohorts — so it measures
+    robustness, not independent validation, and its number is not apples-to-apples
+    with the 0.914 above. **[ROBUSTNESS — [docs/TRANSFER_VALIDATION_RUN.md](docs/TRANSFER_VALIDATION_RUN.md)]**
 - **Honesty by construction.** The verification gate was hardened across an
-  8-finding adversarial audit; the synthetic-vs-real boundary is labeled
-  everywhere, and the one open gap (#1, a real held-out oracle) is stated plainly
-  rather than buried. **[[docs/GAP_AUDIT.md](docs/GAP_AUDIT.md)]**
+  8-finding adversarial audit; the synthetic-vs-real and validation-vs-robustness
+  boundaries are labeled everywhere. Gap #1 is now **closed for the train partition**
+  (above); the remaining open piece — the *blind* precisionFDA test oracle, whose
+  labels the challenge withheld — is stated plainly rather than buried.
+  **[[docs/GAP_AUDIT.md](docs/GAP_AUDIT.md)]**
 
 ---
 
