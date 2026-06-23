@@ -39,8 +39,10 @@ wrong assumption, or an adversarial round to discover. Read alongside
 - **A "held-out" cohort from the same generator is not independent.** Disjoint
   seeds still plant identical signal geometry, so threshold selection on a sibling
   cohort removes per-cohort-noise overfit but retains shared-structure optimism.
-  Genuine independence needs a real held-out oracle (gap #1) — not closeable in
-  code.
+  Genuine independence needs a real oracle with an externally-authored key (gap #1)
+  — it was never closeable *in code*, only by getting real organizer-keyed data,
+  which has now arrived for the train partition (F1 0.914 — see the gap-#1 closure
+  note below).
 - **Across a trust boundary, corroborate — don't trust a boolean you can't
   recompute.** The Go gate now cross-checks the ML service's self-reported
   `passed` against the response's `score`/`threshold` and fails closed on
@@ -78,6 +80,22 @@ wrong assumption, or an adversarial round to discover. Read alongside
   (CCRCC) and correlates with worse precision; an O(n^2 * genes) Spearman forces
   deterministic gene/sample caps — cap with a seeded `RandomState` and **log**
   every cap and every skipped cohort (no silent truncation).
+- **Gap #1's train oracle is now CLOSED — and the "missing" data was publicly
+  mirrored all along.** The blocker for independent validation was always the real
+  precisionFDA molecular matrices (`train_pro`/`train_rna`), assumed absent from any
+  public repo. They were in fact in a participant's public repo
+  (`ACHG2018/fda-mislabeling-challenge` `challenge_data/`). With them in `data/raw/`,
+  `transfer_validation('train')` scores **F1 0.914** (precision 0.842, recall 1.000;
+  TP 16/FP 3/FN 0, fixed 0.5) against the **organizers'** `sum_tab_2.csv` key — a key
+  independent of both us and the generator, so this is the genuine independent
+  validation the COSMO self-injected run (0.805) could never be. Two lessons:
+  (1) before declaring data "unavailable," search the public participant/mirror
+  ecosystem of a *public competition*, not just the official portal — the blocker
+  was where we looked, not whether the data exists; (2) "independent of our
+  generator" finally became "independent of us" only when the *key* came from a
+  third party. **Still open:** the *blind* precisionFDA test oracle (withheld
+  labels) and a provenance cross-check of the mirror against the official source.
+  See [`docs/TRANSFER_VALIDATION_RUN.md`](docs/TRANSFER_VALIDATION_RUN.md) Run 3.
 
 ## Workflow / process
 

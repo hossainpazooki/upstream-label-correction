@@ -34,7 +34,7 @@ flowchart LR
 
     subgraph FUTURE["Unlocks with real precisionFDA data + compute"]
         direction TB
-        O["Held-out oracle<br/>evals/transfer_validation.py activates<br/>→ closes gap #1 (real-data validation)"]
+        O["Held-out oracle<br/>train partition VALIDATED (real precisionFDA, F1 0.914)<br/>blind precisionFDA test labels still gated"]
         T["Full-scale retrain<br/>BioMistral / expression encoder on GPU"]
     end
     DET -. "real held-out labels" .-> O
@@ -50,9 +50,12 @@ flowchart LR
 
 **What you can run today** (no GCP, no external data): `python scripts/demo.py`
 prints the rate→F1 table and the detector's operating frontier in seconds.
-**What's still open:** gap #1 — an independent held-out oracle — is blocked on
-real molecular matrices, not on code; the seam is staged and skips gracefully
-until they land. Everything below expands on both halves of this picture.
+**What's partly closed:** gap #1's train-partition oracle is now **closed** — the
+real precisionFDA training matrices landed, and `evals/transfer_validation.py`
+scores the detector at **F1 0.914** against the challenge organizers' own key (not
+ours). **What's still open:** the *blind* precisionFDA test oracle — those labels
+were withheld by the challenge and remain gated. Everything below expands on both
+halves of this picture.
 
 ---
 
@@ -83,6 +86,18 @@ CLUE's answer: **manufacture the ground truth.** Generate synthetic cohorts that
   defined by COSMO, but the *realized key is authored by us* — so this is a
   **robustness characterization, NOT independent validation**, and it does **not**
   close gap #1. **[ROBUSTNESS, not validation — [docs/TRANSFER_VALIDATION_RUN.md](docs/TRANSFER_VALIDATION_RUN.md)]**
+- **Independent real-data validation (gap #1, train partition).** The real
+  precisionFDA sub-challenge-2 training matrices (`train_pro` 4119×80, `train_rna`
+  17448×80) now sit in `data/raw/`, and `transfer_validation('train')` scores the
+  detector against the **challenge organizers'** mislabel key (`sum_tab_2.csv` →
+  20/80, `{pro 8, rna 8, clin 4}`) — a key authored by neither us nor the
+  generator. At the **fixed default 0.5** threshold: **F1 0.914** (precision 0.842,
+  recall 1.000; TP 16 / FP 3 / FN 0), independently recomputed from the raw flagged
+  set. This is genuinely independent of *us*, unlike the COSMO robustness run — it
+  closes gap #1 for the train partition. It is **not** a blind-test number (the
+  challenge withheld test labels) and covers the 16 *molecular* swaps only (4
+  clinical-only swaps are out of a cross-omics detector's scope). **[VALIDATED on
+  real organizer-keyed data — [docs/TRANSFER_VALIDATION_RUN.md](docs/TRANSFER_VALIDATION_RUN.md)]**
 - **Honesty by construction.** The verification gate was hardened across an
   8-finding adversarial audit; the synthetic-vs-real boundary is labeled
   everywhere, and the one open gap (#1, a real held-out oracle) is stated plainly
@@ -105,7 +120,7 @@ flowchart LR
 | Stage | What it does | Backed by | Status |
 |---|---|---|---|
 | ① **Generate** | Synthetic cohorts with planted MSI/gender signal and injected proteomics/RNA-Seq/clinical swaps; emits a ground-truth record of every swap | `core/synthetic.py` → `SyntheticCohortGenerator` | ✅ implemented |
-| ② **Verify fidelity** | Confirm the cohort is *detectable-by-construction* — planted swaps separate from clean samples under **two mechanically independent** cross-omics detectors (rank-correlation **and** MSE-residual AUROC, AND-gated), with biological signal recoverable and reproducible. This is construction-validity on *synthetic* data; it does **not** establish real-data transfer (gap #1, [PROPOSED] `evals/transfer_validation.py`) | `evals/fidelity_gate.py` → `FidelityGateEval.evaluate_dual` | ✅ implemented |
+| ② **Verify fidelity** | Confirm the cohort is *detectable-by-construction* — planted swaps separate from clean samples under **two mechanically independent** cross-omics detectors (rank-correlation **and** MSE-residual AUROC, AND-gated), with biological signal recoverable and reproducible. This is construction-validity on *synthetic* data; it does **not** itself establish real-data transfer — that is `evals/transfer_validation.py`, which now validates the detector on the real precisionFDA train partition at F1 0.914 (gap #1 closed for train; blind test still gated) | `evals/fidelity_gate.py` → `FidelityGateEval.evaluate_dual` | ✅ implemented |
 | ③ **Measure** | Run the COSMO detector, compare flagged samples to the planted swaps, report precision/recall/F1 swept over corruption rate | `evals/mislabel_detection.py` → `MislabelDetectionEval` (detector: `core/cross_omics_matcher.py`) | ✅ implemented |
 | ④ **Improve** | Feed the measured score back: tune the detector and regenerate harder cohorts up to the operating frontier | `clue/loop.py` → `CLUELoop`; wired into VERIFY via ml_service `/ml/evaluate` | ✅ implemented |
 
@@ -194,7 +209,7 @@ flowchart LR
 
 **Fidelity verification (②)** keeps the synthetic cohort honest — a cohort whose planted corruption isn't separable carries no signal to detect, so any F1 measured on it would be meaningless. The gate is `evals/fidelity_gate.py` (`FidelityGateEval.evaluate_dual`): it scores molecular-swapped-vs-clean separation by **AUROC** under **two mechanically independent detectors** — the rank-correlation distance (`1−|spearman|`) **and** the MSE-residual linear model — and passes only if **both** clear the bar (an AND gate, flagging `detectors_disagree` when they straddle it). Using two primitives with different failure modes means cohort acceptance no longer rests on the *single* detector's blind spot that stage ③ grades on (gap #3). It is reachable in VERIFY via `/ml/evaluate` (`eval_name="fidelity_gate"`).
 
-> **Honest boundary (gap #1).** Both detectors still read the *same* generator's matrices, so this is a *decorrelated second scorer on synthetic data*, **not** an independent held-out oracle: corruption the generator never planted is invisible to both, and clearing the gate does **not** establish real-data performance. The only true fix is validation against real precisionFDA held-out data + curated labels, which are not in this repo (`data/raw` is empty; the challenge withheld test labels). `evals/transfer_validation.py` is the **[PROPOSED]** seam for that — it skips gracefully until real data lands and never reports a synthetic number as real-data performance. Relatedly, `benchmark_comparison` / `biological_validity` are **not** external-signature validation: their reference fixture is a hardcoded copy of the generator's own `KNOWN_MSI_PATHWAY_MARKERS`.
+> **Honest boundary (gap #1).** Both detectors still read the *same* generator's matrices, so this is a *decorrelated second scorer on synthetic data*, **not** an independent held-out oracle: corruption the generator never planted is invisible to both, and clearing the gate does **not** establish real-data performance. The true fix is validation against real data with a key the generator never planted — now done for the **train partition**: `evals/transfer_validation.py('train')` scores the detector at **F1 0.914** against the challenge organizers' own `sum_tab_2.csv` key (real precisionFDA training matrices in gitignored `data/raw/`). The **blind** precisionFDA test oracle stays gated (challenge withheld test labels), so `evaluate('test')` skips gracefully and never fabricates a number. Relatedly, `benchmark_comparison` / `biological_validity` are **not** external-signature validation: their reference fixture is a hardcoded copy of the generator's own `KNOWN_MSI_PATHWAY_MARKERS`.
 
 **Detection measurement (③)** is wired. `MislabelDetectionEval` (`evals/mislabel_detection.py`) runs the cross-omics detector on a generated cohort, scores its flags against the planted `swap_pairs` as precision / recall / F1, and sweeps the corruption rate real data can't provide:
 
@@ -287,7 +302,7 @@ Synthetic data is the **measurement instrument**, not the deliverable. The inten
 | Detection scored vs. synthetic ground truth (P/R/F1) across rates | ✅ `evals/mislabel_detection.py` (tested) |
 | Closed loop: tune detector + regenerate harder to the operating frontier | ✅ `clue/loop.py` → `CLUELoop` (tested) |
 | Fidelity gate uses two independent detectors (rank + MSE-residual, AND-gated) | ✅ `evals/fidelity_gate.py` `evaluate_dual` (tested) — decorrelated second scorer, not a held-out oracle |
-| Validation against **real** held-out data (independent oracle) | 🔶 [PROPOSED] `evals/transfer_validation.py` — seam only; skips until real precisionFDA data + curated labels exist (gap #1, not closeable in-repo) |
+| Validation against **real** organizer-keyed data (independent oracle) | ✅ **train partition** — `evals/transfer_validation.py('train')` active on real precisionFDA matrices, F1 0.914 vs the organizers' `sum_tab_2.csv` key (gap #1 closed for train). 🔶 **blind test** oracle still gated (challenge withheld test labels) |
 | Loop wired into intent lifecycle (VERIFY gates on tuned detection) | ✅ via ml_service `/ml/evaluate` eval routing; Go `RunEval` → `mislabel_detection` |
 | Full model-retrain feedback (vs. threshold tuning) | ✅ `clue/loop.py` `improve_mode="retrain"/"both"` — held-out retrain on a disjoint cohort (tested) |
 | Infrastructure as code | ✅ `infra-ts/` (TypeScript Pulumi); automated deploy currently disabled — see [DEPLOY.md](DEPLOY.md) |
@@ -369,7 +384,7 @@ upstream-label-correction/
 - [Technical Writeup](docs/TECHNICAL_WRITEUP.md) — the CLUE loop, COSMO detector, Go intent-controller, integrity model, real-COSMO run
 - [Scientific Methodology](docs/SCIENTIFIC_METHODOLOGY.md) — COSMO pipeline, biomarkers, statistical rationale
 - [Gap Audit](docs/GAP_AUDIT.md) — gate integrity/honesty findings (correct-shaped-lies lens) and what remains
-- [Transfer Validation Run](docs/TRANSFER_VALIDATION_RUN.md) — detector on **real** COSMO matrices: a **robustness characterization, not** independent validation (gap #1 stays open)
+- [Transfer Validation Run](docs/TRANSFER_VALIDATION_RUN.md) — two real-data runs: (1) COSMO matrices under a self-injected key — a **robustness characterization, not** validation; (2) real precisionFDA train matrices vs the **organizers' key** — **independent validation, F1 0.914**, closing gap #1 for the train partition (blind test still gated)
 - [Temporal-Equivalent Workflow Functionality](docs/TEMPORAL_FUNCTIONALITY.md) — retries + parallel fan-out + cross-replica claim/lease in the Go engine
 - [Intent Workflow](docs/INTENT_WORKFLOW.md) — intent lifecycle *(mixed vintage: the Go intent-plane intro is current; the detailed Python-implementation sections are historical — carries a banner)*
 - [Learnings](LEARNINGS.md) — hard-won engineering lessons (CI gates, determinism, validity boundaries)

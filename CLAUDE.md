@@ -51,12 +51,16 @@ is the authoritative per-finding record.
 - **Determinism is a hard invariant** — all randomness flows through a seeded
   `PCG64` stream (generator) or `RandomState(42)` (detector). Don't introduce
   global-`np.random` use; it breaks byte-identical reproduction.
-- **The gate validates synthetic self-consistency, NOT real-world performance.**
-  That gap (#1, no held-out oracle) is **blocked on real data, not code**:
-  `data/raw/` holds real precisionFDA/CPTAC data and is **gitignored**
-  (`*.tsv`/`*.csv`/`*.json`) so that data never enters history.
-  `evals/transfer_validation.py` is a `[PROPOSED]` seam that activates when the
-  molecular matrices land — see `data/raw/README.md`. Never report a synthetic
-  number as real-data performance.
+- **The synthetic gate validates self-consistency, NOT real-world performance —
+  gap #1's independent oracle is what closes that, and it is now closed for the
+  TRAIN partition.** The real precisionFDA training matrices landed in `data/raw/`
+  (from the public `ACHG2018/fda-mislabeling-challenge` mirror), so
+  `evals/transfer_validation.py('train')` runs for real and scores **F1 0.914**
+  against the challenge organizers' own key — genuine independent validation. The
+  **blind precisionFDA test oracle stays gated** (challenge withheld test labels),
+  so `evaluate('test')` still skips gracefully. `data/raw/` is **gitignored**
+  (`*.tsv`/`*.csv`/`*.json`) so CPTAC-derived data never enters history — see
+  `data/raw/README.md` and `docs/TRANSFER_VALIDATION_RUN.md` (Run 3). Never report
+  a synthetic number, or the train-partition 0.914, as blind real-world performance.
 - **Windows-local** is cp1252 + CRLF: keep `print()`/stdout ASCII; run `gofmt -w`
   only on files you changed (it flags untouched files for CRLF).

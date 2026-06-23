@@ -1,4 +1,72 @@
-# Real-matrix robustness run — CLUE detector on COSMO matrices (self-injected swaps)
+# Transfer-validation runs — CLUE detector on real multi-omics matrices
+
+This file records **two** distinct real-data runs, which must never be conflated:
+
+- **Run 3 — independent validation (precisionFDA train oracle).** Real precisionFDA
+  training matrices scored against the **challenge organizers'** mislabel key. The
+  key is authored by neither us nor the generator, so this is **genuine independent
+  validation** — it **closes gap #1 for the train partition** at **F1 0.914**.
+  Documented immediately below.
+- **Run 2 — real-matrix robustness (COSMO, self-injected key).** Real COSMO matrices
+  with corruption *we* injected following COSMO's published error taxonomy. The
+  features are real but the realized key is ours, so it is a **robustness
+  characterization, NOT validation** (fixed-0.5 F1 0.805). Recorded further down,
+  unchanged.
+
+---
+
+## Run 3 — independent validation: precisionFDA train oracle (gap #1 train-partition CLOSED)
+
+**Headline:** at the detector's **fixed default 0.5** threshold, `transfer_validation`
+scores the real precisionFDA sub-challenge-2 **training** cohort at
+**fixed-0.5 F1 = 0.9143** (precision 0.8421, recall 1.0000; TP 16 / FP 3 / FN 0).
+This is the first number that is independent of *us*, not just of the generator —
+so it genuinely **closes gap #1 for the train partition**.
+
+**Why this is independent (unlike Run 2).** The answer key is the challenge
+organizers' own `sum_tab_2.csv` (converted to `data/raw/train_mislabels.json` by
+`scripts/build_real_labels.py`: 20 mislabeled of 80 = `{proteomics 8, rnaseq 8,
+clinical 4}`). We did not choose which samples are corrupted, in which modality, or
+under which seed — the organizers did. The decision threshold was held at the
+detector default 0.5 and **not** selected against the key (no tune-on-test, gap #2).
+Features are real precisionFDA/CPTAC matrices. Key external + features real +
+threshold not fit ⇒ genuine independent validation.
+
+**Data provenance.** `train_pro.tsv` (4119 genes × 80 samples) and `train_rna.tsv`
+(17448 × 80), genes-as-rows with `Training_1..Training_80` headers, were downloaded
+from the public participant mirror
+[`ACHG2018/fda-mislabeling-challenge`](https://github.com/ACHG2018/fda-mislabeling-challenge)
+(`challenge_data/`) into gitignored `data/raw/`. That repo's `sum_tab_2.csv` matches
+the already-staged `train_mislabels.json` (e.g. Training_2→proteomics,
+Training_6→rnaseq), corroborating that the matrices are the matching official
+training set. **Caveat:** this is a participant mirror, not the official precisionFDA
+portal — a spot-check of a few cells against the official Synapse/precisionFDA
+download is recommended as belt-and-suspenders.
+
+**Independent recomputation (not self-report).** Separately from the eval wrapper,
+the cross-omics detector was re-run directly (`detect_molecular_mismatches`,
+`distance_method='expression_rank'`) and the confusion matrix rebuilt from scratch
+against the organizer key: molecular positives = 16 (clinical-only excluded),
+flagged = 19, **TP = 16, FP = 3 (`Training_1`, `Training_18`, `Training_19`),
+FN = 0** ⇒ precision 0.8421, recall 1.0000, **F1 0.9143** — identical to the
+wrapper to 1e-9.
+
+**Scope and honest limits.**
+- **Train partition, not blind test.** The challenge *released* train labels, so
+  this validates the detector independently of the generator, but it is **not** a
+  blind-test result. The actual blind test set (`test_pro.tsv` / `test_rna.tsv`,
+  already on disk) has **withheld** labels and remains unscoreable — that blind
+  oracle is the remaining open piece of gap #1.
+- **Molecular swaps only.** 16 of the 20 mislabels are molecular (proteomics/rnaseq);
+  the 4 clinical-only swaps (`Training_13/39/47/68`) are out of scope for a
+  cross-omics *distance* detector and are excluded, not missed.
+- **Reproduce:** place `train_pro.tsv`/`train_rna.tsv` in `data/raw/`, then
+  `python -c "from evals.transfer_validation import TransferValidationEval as T;
+  print(T().evaluate('train'))"` → `applicable=True, data_source=real, score=0.9143`.
+
+---
+
+## Run 2 — real-matrix robustness (COSMO, self-injected key)
 
 A durable record of running the CLUE cross-omics detector on **real** COSMO
 multi-omics matrices. Two honest takeaways:

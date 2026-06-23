@@ -105,17 +105,21 @@ now **server-authoritative**: an authenticated control plane (`X-Service-Token`)
 server-pinned cohort params, a **dual decorrelated** fidelity detector, and a
 Go-side consistency check that won't trust a self-inconsistent `passed`.
 
-**The load-bearing caveat (gap #1).** The fidelity gate validates synthetic
-*self-consistency*, **not** real-world performance. Both fidelity scorers read the
-*same* generator's matrices, so this is a decorrelated second scorer on synthetic
-data — **not** an independent held-out oracle. Corruption the generator never
-planted is invisible to both. Clearing the gate does **not** establish real-data
-performance. The only true fix is validation against the real precisionFDA
-held-out partition with curated clinical labels, which are **not** in this repo
-(`data/raw` is gitignored; the challenge withheld test labels).
-`evals/transfer_validation.py` is the `[PROPOSED]` seam for that — it skips
-gracefully until real data lands and never reports a synthetic number as
-real-data performance.
+**The load-bearing caveat (gap #1) — now closed for the train partition.** The
+fidelity gate validates synthetic *self-consistency*, **not** real-world
+performance: both fidelity scorers read the *same* generator's matrices, so that is
+a decorrelated second scorer on synthetic data, not an independent oracle. The true
+fix is validation against real data with a key the generator never planted — and
+that now exists for the **train partition**. The real precisionFDA training
+matrices (`train_pro`/`train_rna`, from the public `ACHG2018/fda-mislabeling-challenge`
+mirror) sit in gitignored `data/raw/`, and `evals/transfer_validation.py('train')`
+scores the detector at **F1 0.914** (precision 0.842, recall 1.000; TP 16/FP 3/FN 0,
+fixed 0.5 threshold) against the **challenge organizers'** `sum_tab_2.csv` key —
+independent of both us and the generator. **Still open:** the *blind* precisionFDA
+test oracle, whose labels the challenge withheld; `evaluate('test')` skips gracefully
+and never fabricates a number. So: synthetic gate = self-consistency; train oracle =
+independent validation (0.914); blind-test oracle = still gated. Never quote the
+synthetic gate, or the train 0.914, as blind real-world performance.
 
 ## Real-COSMO robustness run (what it is, and what it is not)
 
@@ -169,9 +173,10 @@ breaks byte-identical reproduction.
 
 ## Future directions
 
-- **Close gap #1** when the real precisionFDA held-out partition + curated labels
-  are available: activate `evals/transfer_validation.py` as the independent
-  oracle.
+- **Close the rest of gap #1.** The train-partition oracle is done (F1 0.914 vs the
+  organizers' key). What remains is the *blind* precisionFDA test oracle (withheld
+  labels) and a provenance cross-check of the train matrices against the official
+  precisionFDA/Synapse source (they currently come from a participant mirror).
 - **Hard-example reweighting** in the improve step — a lever the loop structure
   admits but does not yet drive.
 - **Multi-center validation**: extend the generator with site-specific batch
