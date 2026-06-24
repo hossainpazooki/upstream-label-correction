@@ -108,6 +108,7 @@ func TestIntentSpecsRegistry(t *testing.T) {
 	assertCriteria(t, "validation", validation.EvalCriteria, map[string]float64{
 		"fidelity_gate":           0.80,
 		"mislabel_detection":      0.70,
+		"transfer_validation":     0.70,
 		"hallucination_detection": 0.90,
 		"adversarial_robustness":  1.0,
 	})

@@ -262,7 +262,7 @@ flowchart LR
 |---|---|---|
 | **AnalysisIntent** | Biomarker discovery / sample QC | Biological validity ≥ 60%, reproducibility ≥ 85% |
 | **TrainingIntent** | Fine-tune BioMistral / expression encoder | Hallucination detection ≥ 90% + adversarial robustness = 100% (both probe the fine-tuned SLM) → auto-deploy |
-| **ValidationIntent** | Cross-omics concordance gate | Fidelity gate ≥ 0.80 AUROC, mislabel detection ≥ 0.70 F1, hallucination detection ≥ 90%, adversarial robustness = 100% |
+| **ValidationIntent** | Cross-omics concordance gate | Fidelity gate ≥ 0.80 AUROC, mislabel detection ≥ 0.70 F1, transfer validation ≥ 0.70 F1 (real organizer-keyed train oracle; skips gracefully when `data/raw` matrices are absent, e.g. CI), hallucination detection ≥ 90%, adversarial robustness = 100% |
 
 The lifecycle now lives solely in the Go service (`intent-controller/`); the legacy Python reference (`intents/`) has been **decommissioned** after the Go service reached parity, and the controller runs multiple replicas safely via a cross-replica claim/lease (Postgres `FOR UPDATE SKIP LOCKED`). The loop is wired into VERIFY through the ML service: the controller's `RunEval` posts to `ml_service`'s `/ml/evaluate`, which routes `eval_name="mislabel_detection"` (one of six evals) to generate a cohort whose integrity-critical parameters (corruption rate, size, and a seed derived from the server-assigned `intent_id`) are pinned server-side rather than taken from the caller — so the gate cohort can't be seed-shopped — then runs the improve step (threshold tuning by default, or classifier retraining via `improve_mode`) and gates the intent on the resulting F1.
 

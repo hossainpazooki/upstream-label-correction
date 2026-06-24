@@ -499,6 +499,29 @@ def _eval_fidelity_gate(params: dict | None, threshold: float, intent_id: str | 
     return _eval_result_to_dict(result)
 
 
+def _eval_transfer_validation(params: dict, threshold: float, intent_id: str | None = None) -> dict:
+    """Score the detector on REAL held-out data — gap #1's independent oracle.
+
+    Routes to ``evals.transfer_validation.TransferValidationEval``, which loads
+    the real precisionFDA / NCI-CPTAC omics matrices and scores the cross-omics
+    detector against the challenge organizers' own mislabel key. When that real
+    data is absent (e.g. CI), the eval skips gracefully (``applicable=False``,
+    ``passed=True``, ``score=1.0``) so the gate passes vacuously rather than
+    fabricating a real-data metric; when the matrices are present it enforces.
+
+    The threshold falls back to 0.50 when called ungated (the assurance 0.0
+    default), mirroring the eval's own floor so an ungated gate stays meaningful.
+    """
+    from evals.transfer_validation import TransferValidationEval
+
+    dataset = (params or {}).get("dataset", "train")
+    result = TransferValidationEval().evaluate(
+        dataset=dataset,
+        threshold=(threshold if threshold and threshold > 0.0 else 0.50),
+    )
+    return _eval_result_to_dict(result)
+
+
 #: Synchronous eval runners keyed on eval_name. Async runners are dispatched
 #: separately in evaluate() because they must be awaited.
 _SYNC_EVAL_RUNNERS = {
@@ -508,6 +531,7 @@ _SYNC_EVAL_RUNNERS = {
     "benchmark_comparison": _eval_benchmark_comparison,
     "mislabel_detection": _eval_mislabel_detection,
     "fidelity_gate": _eval_fidelity_gate,
+    "transfer_validation": _eval_transfer_validation,
 }
 
 

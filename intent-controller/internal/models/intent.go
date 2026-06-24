@@ -178,6 +178,7 @@ var IntentSpecs = map[string]IntentSpec{
 		EvalCriteria: []EvalCriterion{
 			{Name: "fidelity_gate", Threshold: 0.80},
 			{Name: "mislabel_detection", Threshold: 0.70},
+			{Name: "transfer_validation", Threshold: 0.70},
 			{Name: "hallucination_detection", Threshold: 0.90},
 			{Name: "adversarial_robustness", Threshold: 1.0},
 		},
